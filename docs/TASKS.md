@@ -124,7 +124,7 @@
 
 ## T003 内部事件适配层
 
-状态：todo
+状态：done
 
 目标：
 
@@ -143,6 +143,10 @@
 
 - 第一版不展示 `reasoning`、`todo_list`、`mcp_tool_call`
 - 可以先保留扩展位，但不做重抽象
+- 已完成：新增 `event_adapter.py`，将 transport `StreamEvent` 适配为内部 `RelayEvent`
+- 已完成：支持 `thread.started`、`agent_message`、`command_execution`、`file_change`、顶层 `error`、`turn.completed`
+- 已完成：未知事件直接跳过，transport `relay_error` 原样透传，不中断主流程
+- 已完成：补充单测覆盖事件映射与序列适配
 
 下一步：
 
