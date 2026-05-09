@@ -61,10 +61,12 @@
   - `coding_handoff` tool handler
   - 参数校验
   - 进入 coding mode 的入口协调
+  - 用 Hermes `session_id` 建立当前 relay 绑定
 
 - `gateway_hook.py`
   - `pre_gateway_dispatch`
   - coding mode 下的消息拦截和转发
+  - 同一 `session_key` 下发现新 `session_id` 时清理旧 relay 内存态
 
 - `slash_commands.py`
   - `/relay-back`、`/relay-mode` 等 relay 控制命令
@@ -115,6 +117,12 @@
 - `run/sessions.json`
 - `run/active/`
 - `run/logs/`
+
+补充说明：
+
+- “当前是否处于 coding mode” 只保存在进程内存，不做永久化恢复
+- 永久保存的是 `codex_thread_id`、`workdir`、summary 等可恢复线索
+- Hermes `/reset` 后会得到新的 `session_id`，旧 active relay state 不应继续命中新会话
 
 约束：
 

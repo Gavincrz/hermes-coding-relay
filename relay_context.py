@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 
@@ -22,6 +23,29 @@ def extract_text(payload: Any) -> str:
         if isinstance(value, str):
             return value
     return ""
+
+
+def extract_session_id(payload: Any) -> str | None:
+    """Return a Hermes session id from kwargs or tool dispatch context."""
+    session_id = _extract_string_field(payload, "session_id")
+    if session_id:
+        return session_id
+    task_id = _extract_string_field(payload, "task_id")
+    if task_id:
+        return task_id
+    return None
+
+
+def extract_session_key(payload: Any) -> str | None:
+    """Return the current Hermes session key from kwargs or environment."""
+    session_key = _extract_string_field(payload, "session_key")
+    if session_key:
+        return session_key
+
+    env_value = os.getenv("HERMES_SESSION_KEY", "").strip()
+    if env_value:
+        return env_value
+    return None
 
 
 def _extract_string_field(payload: Any, field_name: str) -> str | None:

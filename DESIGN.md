@@ -44,15 +44,17 @@
 
 第一版显式区分三类标识：
 
-- `chat_id`：gateway 对话标识，用于判断某个 chat 是否处于 coding mode
+- `session_id`：Hermes 当前会话标识；用于判断“当前这一轮 Hermes 会话”是否处于 coding mode
+- `session_key`：Hermes 对同一 chat/source 的稳定归并键；用于识别 reset 前后的同源会话并清理旧内存态
 - `codex_thread_id`：Codex `thread.started.thread_id` 返回的真实恢复标识；也是持久化主键
-- `active relay state`：插件当前内存态，描述某个 `chat_id` 当前绑定的 Codex 会话和进程
+- `active relay state`：插件当前内存态，描述某个 `session_id` 当前绑定的 Codex 会话和进程
 
 ### 3.1 Active Relay State
 
 ```python
 class ActiveRelayState:
-    chat_id: str
+    session_id: str
+    session_key: str | None
     agent: str                  # 固定为 "codex"
     codex_thread_id: str | None
     workdir: str
@@ -64,7 +66,8 @@ class ActiveRelayState:
 
 说明：
 
-- 第一版只允许一个 `chat_id` 同时绑定一个 active Codex 会话
+- 第一版只允许一个 `session_id` 同时绑定一个 active Codex 会话
+- 同一 `session_key` 下若产生新的 `session_id`，旧的 active relay state 会被清理
 - gateway 重启后内存态丢失，持久化数据仍保留在 `run/`
 
 ## 4. 仓库布局与运行态边界
@@ -144,7 +147,7 @@ run/
 1. 校验 `agent == "codex"`
 2. 校验 `workdir` 位于允许的项目根内
 3. 若传入 `codex_thread_id`，走 resume；否则新建会话
-4. 建立 `active relay state`
+4. 以当前 `session_id` 建立 `active relay state`
 5. 持久化更新 `run/sessions.json`
 
 ### 5.2 Slash Command：`/relay-back`
@@ -153,14 +156,14 @@ run/
 
 - 退出 coding mode
 - 若当前有活跃 Codex 进程，则优先温和终止，再必要时强杀
-- 清理该 `chat_id` 的 `active relay state`
+- 清理当前 `session_id` 的 `active relay state`
 
 ### 5.3 Slash Command：`/relay-mode`
 
 作用：
 
 - 查看当前 relay 执行模式
-- 在当前 chat 的 active relay state 上切换后续 turn 的执行策略
+- 在当前 `session_id` 的 active relay state 上切换后续 turn 的执行策略
 
 支持值：
 
@@ -173,7 +176,7 @@ run/
 
 行为：
 
-- `chat_id` 不在 coding mode：返回 `None`
+- 当前 `session_id` 不在 coding mode：返回 `None`
 - coding mode 中收到 `/relay-back`：执行退出逻辑，返回 `None`
 - coding mode 中收到 `/relay-mode ...`：修改 active relay state，返回 `{"action": "skip"}`
 - coding mode 中收到其他普通消息或 slash 命令：原样转发给 Codex，返回 `{"action": "skip"}`，Hermes 不介入

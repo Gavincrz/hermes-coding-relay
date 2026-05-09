@@ -133,3 +133,20 @@
 - 避免把联调产物混入源码提交边界
 - 降低误报、脏工作树和测试后残留文件的风险
 - 与 `run/` 只存运行态、源码树不落临时产物的规则保持一致
+
+## D010 Active relay state 按 Hermes session_id 绑定
+
+日期：2026-05-09
+
+结论：
+
+- `coding_handoff` 不再以 `chat_id` 作为进入 coding mode 的前提
+- active relay state 以内存态 `session_id` 为主键
+- 同一 `session_key` 下若出现新的 `session_id`，旧 relay state 自动清理
+- `codex_thread_id` 继续作为可恢复的持久化标识，和 active coding mode 解耦
+
+理由：
+
+- Hermes 普通 tool 调用稳定传入的是 `task_id/session_id`，不是 `chat_id`
+- `/reset` 后需要让旧 coding mode 自然失效，不能继续命中新会话
+- active coding mode 属于瞬时控制态，不应作为永久真相保存
