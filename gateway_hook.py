@@ -21,7 +21,7 @@ def pre_gateway_dispatch(**kwargs):
 
     text = _extract_text(kwargs)
     command = text.strip()
-    if command in {"/back", "/relay-back"}:
+    if command == "/relay-back":
         handle_relay_back_command("", chat_id=chat_id)
         return None
     if command.startswith("/relay-mode"):

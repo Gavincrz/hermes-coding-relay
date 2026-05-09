@@ -15,7 +15,7 @@
 
 - 建立 Hermes plugin 最小骨架
 - 能被 Hermes 发现并加载
-- 注册 `coding_handoff`、`pre_gateway_dispatch`、`/back`
+- 注册 `coding_handoff`、`pre_gateway_dispatch`、`/relay-back`
 
 完成标准：
 
@@ -162,13 +162,13 @@
 
 - 在 coding mode 下绕过 Hermes LLM
 - 普通消息直接转发给 Codex
-- `/back` 可退出 coding mode
+- `/relay-back` 可退出 coding mode
 
 完成标准：
 
 - `coding_handoff` 后 chat 进入 active relay state
 - `pre_gateway_dispatch` 在 coding mode 下拦截普通消息
-- `/back` 能清理 active state，并在有活跃进程时停止它
+- `/relay-back` 能清理 active state，并在有活跃进程时停止它
 
 实现备注：
 
@@ -177,7 +177,7 @@
 - 已完成：新增 `relay_runtime.py`，集中管理 active relay state、workdir 校验、单轮 Codex turn 执行与退出清理
 - 已完成：`coding_handoff` 进入 active relay state，并立即发起首轮 Codex turn
 - 已完成：`pre_gateway_dispatch` 在 coding mode 下拦截普通消息并通过 `resume` 语义继续会话，返回 `action=skip`
-- 已完成：`/back` 和 hook 内 `/back` 都会清理 active state，并在有活跃进程时停止它
+- 已完成：`/relay-back` 会清理 active state，并在有活跃进程时停止它
 - 已完成：补充单测覆盖 handoff、gateway 拦截和退出行为
 
 下一步：
@@ -302,7 +302,8 @@
 - 若 Codex `exec --json` 未暴露稳定 approval 事件，则保留 `never` / `yolo` 两种无交互模式
 - 已完成：`agent_spawner.py` 默认改为 `workspace-write + -a never`，并支持显式 `yolo`
 - 已完成：`coding_handoff` 支持 `sandbox_mode` / `yolo` 参数校验与回显
-- 已完成：新增会话级 `/relay-mode [status|safe|readonly|yolo]` 控制，并保留 `/relay-back`
+- 已完成：新增会话级 `/relay-mode [status|safe|readonly|yolo]` 控制，并使用 `/relay-back`
+- 已完成：移除 `/back` 兼容分支，避免与 Codex 自身 slash 空间混用
 - 已完成：coding mode 下除 relay 保留命令外，其余 slash 文本继续原样转给 Codex
 - 已完成：补充单测覆盖命令构造、模式切换、保留命令和 slash 透传
 - 已完成：设计、架构和决策文档同步写实 approval 边界与命令命名空间

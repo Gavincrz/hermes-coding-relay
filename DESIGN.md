@@ -10,7 +10,7 @@
 - 进入 coding mode 后，普通消息完全绕过 Hermes LLM
 - 通过 `coding_handoff` tool 进入 coding mode
 - 通过 `pre_gateway_dispatch` hook 接管后续消息
-- 通过 `/relay-back` 退出 coding mode（保留 `/back` 兼容）
+- 通过 `/relay-back` 退出 coding mode
 - 运行态数据统一写入仓库内的 `run/`
 
 第一版**不做**：
@@ -153,10 +153,6 @@ run/
 - 若当前有活跃 Codex 进程，则优先温和终止，再必要时强杀
 - 清理该 `chat_id` 的 `active relay state`
 
-兼容性：
-
-- `/back` 在 coding mode 下仍可用，但作为兼容别名保留
-
 ### 5.3 Slash Command：`/relay-mode`
 
 作用：
@@ -176,7 +172,7 @@ run/
 行为：
 
 - `chat_id` 不在 coding mode：返回 `None`
-- coding mode 中收到 `/relay-back` 或兼容别名 `/back`：执行退出逻辑，返回 `None`
+- coding mode 中收到 `/relay-back`：执行退出逻辑，返回 `None`
 - coding mode 中收到 `/relay-mode ...`：修改 active relay state，返回 `{"action": "skip"}`
 - coding mode 中收到其他普通消息或 slash 命令：原样转发给 Codex，返回 `{"action": "skip"}`，Hermes 不介入
 
