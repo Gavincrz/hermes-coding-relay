@@ -252,7 +252,7 @@
 
 ## T007 测试补强与文档收口
 
-状态：todo
+状态：done
 
 目标：
 
@@ -269,6 +269,9 @@
 
 - 只补与当前输出格式化主链路直接相关的测试
 - 不扩展到真实 gateway 集成测试
+- 已完成：新增 `tests/test_relay_runtime.py`，验证 runtime 会保留命令/文件事件上下文供格式化层使用
+- 已完成：更新 `DESIGN.md`，补充 `coding_handoff` 返回口径、错误覆盖范围和格式化降级策略
+- 已完成：更新 `docs/ARCHITECTURE.md`，写实 `output_formatter.py` 职责和测试 seam
 
 下一步：
 

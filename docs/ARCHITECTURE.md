@@ -75,7 +75,8 @@
   - 原始 Codex NDJSON 事件转内部事件
 
 - `output_formatter.py`
-  - 内部事件转平台输出
+  - 将 turn 结果中的 `agent_text`、命令摘要、文件变更摘要和错误映射为平台输出
+  - 格式化失败时回退到原始 `agent_text`，不影响 relay 主链路
 
 - `session_store.py`
   - `run/` 下的持久化状态读写
@@ -126,6 +127,7 @@
 - gateway hook 的透传与后续拦截行为
 - Codex 命令构造
 - NDJSON 解析和坏行容错
+- 输出格式化与常见错误映射
 - 会话持久化格式
 
 测试优先级：

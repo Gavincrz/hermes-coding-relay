@@ -123,6 +123,10 @@ run/
   "status": "handed_off",
   "agent": "codex",
   "codex_thread_id": "019e0769-f520-7aa2-a219-da891e701f8d",
+  "initial_messages": [
+    "已转接到 codex。",
+    "命令完成：pytest -q (exit 0)"
+  ],
   "message": "已转接到 codex。后续消息直接发给它，发送 /back 回来找 Hermes。"
 }
 ```
@@ -241,10 +245,11 @@ codex -a never exec resume <codex_thread_id> --json "<prompt>"
 建议策略：
 
 1. `agent_text`：完整输出
-2. `command_started`：简短提示，例如 `🔧 执行: pytest -q`
+2. `command_started`：简短提示，例如 `执行命令：pytest -q`
 3. `command_finished`：输出 exit code 和截断后的结果摘要
-4. `file_change`：输出修改数量和必要时的文件名摘要
-5. `relay_error`：给用户明确错误，而不是静默失败
+4. `file_change`：输出去重后的文件名摘要，必要时截断为少量文件 + 总数
+5. `relay_error`：给用户明确错误，而不是静默失败；至少覆盖 CLI 未安装、spawn 失败、非零退出和 JSON 解析异常
+6. `output_formatter` 自身异常时回退到原始 `agent_text`，不阻断 Codex 主流程
 
 如果 gateway / 飞书消息编辑能力不稳定，允许第一版退化为“连续发新消息”，不强制实现单消息流式编辑。
 
