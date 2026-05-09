@@ -337,3 +337,31 @@
 下一步：
 
 - 继续飞书端到端测试，使用独立临时项目作为 `workdir`
+
+---
+
+## T010 Hermes event 上下文提取兼容
+
+状态：done
+
+目标：
+
+- 修复 `coding_handoff` 在 Hermes gateway / 飞书联调中拿不到 `chat_id` 的问题
+- 兼容 Hermes `MessageEvent.source` 对象形状，而不仅是 dict 形状
+
+完成标准：
+
+- `coding_handoff` 可从 Hermes event 对象提取 `chat_id`
+- gateway hook / slash command 复用同一上下文提取逻辑
+- 单测覆盖 event object 形状
+
+实现备注：
+
+- 已完成：新增 `relay_context.py`，统一处理 kwargs、event dict、`event.source` 对象三类上下文来源
+- 已完成：`handoff_tool.py`、`gateway_hook.py`、`slash_commands.py` 改为复用统一提取逻辑
+- 已完成：补充单测覆盖 `MessageEvent.source.chat_id` 形状
+- 已完成：真实探针验证对象形状不再触发 `invalid_chat_id`
+
+下一步：
+
+- 继续飞书端到端测试，验证 Hermes 真实 tool 调用路径现在可以成功进入 coding mode
