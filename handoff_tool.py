@@ -6,6 +6,7 @@ import json
 
 try:
     from .output_formatter import safe_format_turn_output
+    from .relay_context import extract_chat_id, extract_message_id
     from .relay_runtime import (
         activate_relay,
         persist_session_turn,
@@ -16,6 +17,7 @@ try:
     )
 except ImportError:  # pragma: no cover - direct import compatibility
     from output_formatter import safe_format_turn_output
+    from relay_context import extract_chat_id, extract_message_id
     from relay_runtime import (
         activate_relay,
         persist_session_turn,
@@ -34,8 +36,8 @@ def coding_handoff(args, **kwargs):
     codex_thread_id = args.get("codex_thread_id")
     sandbox_mode = args.get("sandbox_mode")
     yolo = args.get("yolo")
-    chat_id = _extract_chat_id(args, kwargs)
-    message_id = _extract_message_id(args, kwargs)
+    chat_id = extract_chat_id(args) or extract_chat_id(kwargs)
+    message_id = extract_message_id(args) or extract_message_id(kwargs)
 
     if agent != "codex":
         return json.dumps(
@@ -140,25 +142,3 @@ def coding_handoff(args, **kwargs):
         },
         ensure_ascii=False,
     )
-
-
-def _extract_chat_id(args, kwargs) -> str | None:
-    if isinstance(args.get("chat_id"), str):
-        return args["chat_id"]
-    if isinstance(kwargs.get("chat_id"), str):
-        return kwargs["chat_id"]
-    event = kwargs.get("event")
-    if isinstance(event, dict) and isinstance(event.get("chat_id"), str):
-        return event["chat_id"]
-    return None
-
-
-def _extract_message_id(args, kwargs) -> str | None:
-    if isinstance(args.get("message_id"), str):
-        return args["message_id"]
-    if isinstance(kwargs.get("message_id"), str):
-        return kwargs["message_id"]
-    event = kwargs.get("event")
-    if isinstance(event, dict) and isinstance(event.get("message_id"), str):
-        return event["message_id"]
-    return None

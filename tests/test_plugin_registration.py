@@ -1,6 +1,7 @@
 import json
 import tempfile
 import unittest
+from types import SimpleNamespace
 from pathlib import Path
 
 import yaml
@@ -85,6 +86,31 @@ class PluginRegistrationTests(unittest.TestCase):
         result = json.loads(coding_handoff({"agent": "codex", "prompt": "x", "workdir": "/tmp"}))
         self.assertEqual(result["status"], "rejected")
         self.assertEqual(result["reason"], "invalid_chat_id")
+
+    def test_coding_handoff_accepts_hermes_event_object_chat_id(self):
+        import handoff_tool
+
+        original_runner = handoff_tool.run_codex_turn
+        handoff_tool.run_codex_turn = lambda state, prompt, message_id=None: FakeRunnerResult(
+            codex_thread_id="thread-obj",
+            agent_texts=["ready"],
+        )
+        self.addCleanup(setattr, handoff_tool, "run_codex_turn", original_runner)
+
+        event = SimpleNamespace(
+            source=SimpleNamespace(chat_id="chat-event"),
+            message_id="msg-event",
+        )
+        result = json.loads(
+            coding_handoff(
+                {"agent": "codex", "prompt": "x", "workdir": "/home/dontstarve/projects/coding-relay"},
+                event=event,
+            )
+        )
+
+        self.assertEqual(result["status"], "handed_off")
+        self.assertEqual(result["codex_thread_id"], "thread-obj")
+        self.assertEqual(get_active_relay("chat-event").chat_id, "chat-event")
 
     def test_coding_handoff_rejects_workdir_outside_allowed_root(self):
         result = json.loads(
