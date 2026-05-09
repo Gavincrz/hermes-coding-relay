@@ -218,6 +218,26 @@ class PluginRegistrationTests(unittest.TestCase):
         self.assertIsNone(result)
         self.assertIsNone(get_active_relay("chat-1"))
 
+    def test_gateway_hook_treats_back_as_agent_text(self):
+        import gateway_hook
+
+        original_runner = gateway_hook.run_codex_turn
+        gateway_hook.run_codex_turn = lambda state, prompt, message_id=None: FakeRunnerResult(
+            codex_thread_id="thread-123",
+            agent_texts=[f"reply:{prompt}"],
+        )
+        self.addCleanup(setattr, gateway_hook, "run_codex_turn", original_runner)
+
+        from relay_runtime import activate_relay
+
+        activate_relay("chat-1", "/home/dontstarve/projects/coding-relay", "thread-123")
+
+        result = pre_gateway_dispatch(chat_id="chat-1", text="/back")
+
+        self.assertEqual(result["action"], "skip")
+        self.assertEqual(result["relay"]["messages"], ["reply:/back"])
+        self.assertIsNotNone(get_active_relay("chat-1"))
+
     def test_gateway_hook_preserves_agent_slash_commands(self):
         import gateway_hook
 

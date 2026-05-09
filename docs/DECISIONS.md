@@ -23,7 +23,7 @@
 结论：
 
 - 进入 coding mode 后，普通消息完全绕过 Hermes LLM
-- 只有 `/back` 才退出 coding mode
+- 只有 `/relay-back` 才退出 coding mode
 
 理由：
 
@@ -110,6 +110,7 @@
 
 - relay 自己的控制命令使用 `relay-*` 前缀，例如 `/relay-back`、`/relay-mode`
 - coding mode 下除保留命令外，其余 slash 文本继续原样转给 Codex
+- 不保留 `/back` 这类短别名兼容
 
 理由：
 
