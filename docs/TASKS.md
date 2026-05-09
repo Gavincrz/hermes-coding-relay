@@ -156,7 +156,7 @@
 
 ## T004 Coding Mode 接管
 
-状态：todo
+状态：done
 
 目标：
 
@@ -174,6 +174,11 @@
 
 - 只处理单 chat 单 active Codex 会话
 - 不做复杂并发调度
+- 已完成：新增 `relay_runtime.py`，集中管理 active relay state、workdir 校验、单轮 Codex turn 执行与退出清理
+- 已完成：`coding_handoff` 进入 active relay state，并立即发起首轮 Codex turn
+- 已完成：`pre_gateway_dispatch` 在 coding mode 下拦截普通消息并通过 `resume` 语义继续会话，返回 `action=skip`
+- 已完成：`/back` 和 hook 内 `/back` 都会清理 active state，并在有活跃进程时停止它
+- 已完成：补充单测覆盖 handoff、gateway 拦截和退出行为
 
 下一步：
 
