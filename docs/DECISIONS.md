@@ -85,3 +85,34 @@
 
 - 缩小文件和命令执行边界
 - 降低误操作风险
+
+## D007 默认执行模式使用 `workspace-write + -a never`
+
+日期：2026-05-09
+
+结论：
+
+- 默认 relay turn 以 `workspace-write` 启动 Codex
+- 继续保留 `-a never`
+- 激进模式通过显式 `yolo` 开启，不隐式升级
+
+理由：
+
+- `read-only` 会直接阻塞真实编码主链路
+- 当前 `exec --json` 不应被假设为会稳定产出可桥接的 approval 事件
+- `workspace-write` 能满足项目内修改，同时保留 v1 的非交互 relay 形态
+
+## D008 Relay 控制命令使用独立前缀
+
+日期：2026-05-09
+
+结论：
+
+- relay 自己的控制命令使用 `relay-*` 前缀，例如 `/relay-back`、`/relay-mode`
+- coding mode 下除保留命令外，其余 slash 文本继续原样转给 Codex
+
+理由：
+
+- 降低与 Hermes 内建命令及其他插件命令的冲突概率
+- 避免占用 Codex 可能使用的简短 slash 名称
+- 保持“进入 coding mode 后 Hermes 让出主控制面”的直觉一致性

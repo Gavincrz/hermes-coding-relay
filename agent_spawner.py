@@ -9,6 +9,8 @@ from typing import Callable, Iterator, TextIO
 
 
 CODEX_BIN = "codex"
+DEFAULT_SANDBOX_MODE = "workspace-write"
+VALID_SANDBOX_MODES = frozenset({"read-only", "workspace-write", "danger-full-access"})
 
 
 class CodexSpawnError(RuntimeError):
@@ -27,21 +29,44 @@ class StreamEvent:
 PopenFactory = Callable[..., subprocess.Popen]
 
 
-def build_codex_command(prompt: str, workdir: str, codex_thread_id: str | None = None) -> list[str]:
+def build_codex_command(
+    prompt: str,
+    workdir: str,
+    codex_thread_id: str | None = None,
+    *,
+    sandbox_mode: str = DEFAULT_SANDBOX_MODE,
+    yolo: bool = False,
+) -> list[str]:
     """Build the Codex CLI argv for a fresh or resumed session."""
+    command = [CODEX_BIN]
+    if yolo:
+        command.append("--dangerously-bypass-approvals-and-sandbox")
+    else:
+        command.extend(["-a", "never", "-s", sandbox_mode])
+
     if codex_thread_id:
-        return [CODEX_BIN, "-a", "never", "exec", "resume", codex_thread_id, "--json", prompt]
-    return [CODEX_BIN, "-a", "never", "exec", "--json", "-C", workdir, prompt]
+        if yolo:
+            return command + ["exec", "resume", codex_thread_id, "--json", prompt]
+        return command + ["exec", "resume", codex_thread_id, "--json", prompt]
+    return command + ["exec", "--json", "-C", workdir, prompt]
 
 
 def start_codex_process(
     prompt: str,
     workdir: str,
     codex_thread_id: str | None = None,
+    sandbox_mode: str = DEFAULT_SANDBOX_MODE,
+    yolo: bool = False,
     popen_factory: PopenFactory = subprocess.Popen,
 ) -> "CodexProcess":
     """Start Codex and return a wrapper that streams NDJSON events."""
-    command = build_codex_command(prompt=prompt, workdir=workdir, codex_thread_id=codex_thread_id)
+    command = build_codex_command(
+        prompt=prompt,
+        workdir=workdir,
+        codex_thread_id=codex_thread_id,
+        sandbox_mode=sandbox_mode,
+        yolo=yolo,
+    )
     try:
         process = popen_factory(
             command,

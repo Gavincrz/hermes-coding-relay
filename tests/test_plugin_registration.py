@@ -10,7 +10,7 @@ import session_store
 from gateway_hook import pre_gateway_dispatch
 from handoff_tool import coding_handoff
 from relay_runtime import ActiveRelayState, clear_active_relays, get_active_relay
-from slash_commands import handle_back_command
+from slash_commands import handle_relay_back_command, handle_relay_mode_command
 
 
 class FakeContext:
@@ -70,9 +70,11 @@ class PluginRegistrationTests(unittest.TestCase):
 
         self.assertEqual(ctx.hooks, [("pre_gateway_dispatch", pre_gateway_dispatch)])
 
-        self.assertEqual(len(ctx.commands), 1)
-        self.assertEqual(ctx.commands[0]["name"], "back")
-        self.assertIs(ctx.commands[0]["handler"], handle_back_command)
+        self.assertEqual(len(ctx.commands), 2)
+        self.assertEqual(ctx.commands[0]["name"], "relay-back")
+        self.assertIs(ctx.commands[0]["handler"], handle_relay_back_command)
+        self.assertEqual(ctx.commands[1]["name"], "relay-mode")
+        self.assertIs(ctx.commands[1]["handler"], handle_relay_mode_command)
 
     def test_coding_handoff_rejects_non_codex_agent(self):
         result = json.loads(coding_handoff({"agent": "claude", "prompt": "x", "workdir": "/tmp"}, chat_id="chat-1"))
@@ -90,6 +92,16 @@ class PluginRegistrationTests(unittest.TestCase):
         )
         self.assertEqual(result["status"], "rejected")
         self.assertEqual(result["reason"], "invalid_workdir")
+
+    def test_coding_handoff_rejects_invalid_execution_mode(self):
+        result = json.loads(
+            coding_handoff(
+                {"agent": "codex", "prompt": "x", "workdir": "/home/dontstarve/projects/coding-relay", "yolo": "yes"},
+                chat_id="chat-1",
+            )
+        )
+        self.assertEqual(result["status"], "rejected")
+        self.assertEqual(result["reason"], "invalid_execution_mode")
 
     def test_coding_handoff_enters_coding_mode_and_runs_initial_turn(self):
         import handoff_tool
@@ -114,6 +126,8 @@ class PluginRegistrationTests(unittest.TestCase):
         self.assertEqual(result["status"], "handed_off")
         self.assertEqual(result["agent"], "codex")
         self.assertEqual(result["codex_thread_id"], "thread-123")
+        self.assertEqual(result["sandbox_mode"], "workspace-write")
+        self.assertFalse(result["yolo"])
         self.assertEqual(
             result["initial_messages"],
             ["ready", "命令完成：pytest -q (exit 0)", "文件变更：relay_runtime.py"],
@@ -199,17 +213,47 @@ class PluginRegistrationTests(unittest.TestCase):
 
         activate_relay("chat-1", "/home/dontstarve/projects/coding-relay", "thread-123")
 
-        result = pre_gateway_dispatch(chat_id="chat-1", text="/back")
+        result = pre_gateway_dispatch(chat_id="chat-1", text="/relay-back")
 
         self.assertIsNone(result)
         self.assertIsNone(get_active_relay("chat-1"))
 
-    def test_back_command_exits_coding_mode(self):
+    def test_gateway_hook_preserves_agent_slash_commands(self):
+        import gateway_hook
+
+        original_runner = gateway_hook.run_codex_turn
+        gateway_hook.run_codex_turn = lambda state, prompt, message_id=None: FakeRunnerResult(
+            codex_thread_id="thread-123",
+            agent_texts=[f"reply:{prompt}"],
+        )
+        self.addCleanup(setattr, gateway_hook, "run_codex_turn", original_runner)
+
         from relay_runtime import activate_relay
 
         activate_relay("chat-1", "/home/dontstarve/projects/coding-relay", "thread-123")
 
-        result = handle_back_command("", chat_id="chat-1")
+        result = pre_gateway_dispatch(chat_id="chat-1", text="/compact")
+
+        self.assertEqual(result["action"], "skip")
+        self.assertEqual(result["relay"]["messages"], ["reply:/compact"])
+
+    def test_gateway_hook_relay_mode_changes_execution_mode(self):
+        from relay_runtime import activate_relay
+
+        activate_relay("chat-1", "/home/dontstarve/projects/coding-relay", "thread-123")
+
+        result = pre_gateway_dispatch(chat_id="chat-1", text="/relay-mode readonly")
+
+        self.assertEqual(result["action"], "skip")
+        self.assertEqual(result["relay"]["messages"], ["已切换 relay 模式：readonly（read-only）。"])
+        self.assertEqual(get_active_relay("chat-1").sandbox_mode, "read-only")
+
+    def test_relay_back_command_exits_coding_mode(self):
+        from relay_runtime import activate_relay
+
+        activate_relay("chat-1", "/home/dontstarve/projects/coding-relay", "thread-123")
+
+        result = handle_relay_back_command("", chat_id="chat-1")
 
         self.assertIn("已退出", result)
         self.assertIsNone(get_active_relay("chat-1"))
