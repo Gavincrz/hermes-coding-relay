@@ -31,9 +31,10 @@ RELAY_MODE_PRESETS = {
 
 @dataclass
 class ActiveRelayState:
-    """In-memory coding-mode binding for one chat."""
+    """In-memory coding-mode binding for one Hermes session."""
 
-    chat_id: str
+    session_id: str
+    session_key: str | None
     agent: str
     codex_thread_id: str | None
     workdir: str
@@ -68,31 +69,34 @@ def validate_workdir(workdir: str) -> str:
 
 
 def activate_relay(
-    chat_id: str,
+    session_id: str,
     workdir: str,
     codex_thread_id: str | None = None,
     *,
+    session_key: str | None = None,
     sandbox_mode: str = DEFAULT_SANDBOX_MODE,
     yolo: bool = False,
 ) -> ActiveRelayState:
-    """Create or replace the active relay state for a chat."""
+    """Create or replace the active relay state for a Hermes session."""
     state = ActiveRelayState(
-        chat_id=chat_id,
+        session_id=session_id,
+        session_key=session_key,
         agent="codex",
         codex_thread_id=codex_thread_id,
         workdir=workdir,
         sandbox_mode=sandbox_mode,
         yolo=yolo,
     )
-    _ACTIVE_RELAYS[chat_id] = state
+    _ACTIVE_RELAYS[session_id] = state
+    prune_stale_relays_for_session_key(session_key, keep_session_id=session_id)
     return state
 
 
-def get_active_relay(chat_id: str | None) -> ActiveRelayState | None:
-    """Return the active relay state for a chat if present."""
-    if not chat_id:
+def get_active_relay(session_id: str | None) -> ActiveRelayState | None:
+    """Return the active relay state for a Hermes session if present."""
+    if not session_id:
         return None
-    return _ACTIVE_RELAYS.get(chat_id)
+    return _ACTIVE_RELAYS.get(session_id)
 
 
 def clear_active_relays() -> None:
@@ -100,24 +104,45 @@ def clear_active_relays() -> None:
     _ACTIVE_RELAYS.clear()
 
 
-def exit_coding_mode(chat_id: str | None) -> bool:
-    """Stop any active process and remove coding-mode state for the chat."""
-    if not chat_id:
+def exit_coding_mode(session_id: str | None) -> bool:
+    """Stop any active process and remove coding-mode state for the session."""
+    if not session_id:
         return False
-    state = _ACTIVE_RELAYS.pop(chat_id, None)
+    state = _ACTIVE_RELAYS.pop(session_id, None)
     if state is None:
         return False
     _stop_process(state.current_process)
     return True
 
 
-def set_relay_mode(chat_id: str | None, mode: str) -> ActiveRelayState:
+def prune_stale_relays_for_session_key(
+    session_key: str | None,
+    *,
+    keep_session_id: str | None = None,
+) -> int:
+    """Remove stale relay states for the same Hermes session key."""
+    if not isinstance(session_key, str) or not session_key:
+        return 0
+
+    removed = 0
+    for session_id, state in list(_ACTIVE_RELAYS.items()):
+        if state.session_key != session_key:
+            continue
+        if keep_session_id and session_id == keep_session_id:
+            continue
+        _ACTIVE_RELAYS.pop(session_id, None)
+        _stop_process(state.current_process)
+        removed += 1
+    return removed
+
+
+def set_relay_mode(session_id: str | None, mode: str) -> ActiveRelayState:
     """Update the execution mode for the active relay session."""
-    if not isinstance(chat_id, str) or not chat_id:
-        raise ValueError("chat_id is required.")
-    state = get_active_relay(chat_id)
+    if not isinstance(session_id, str) or not session_id:
+        raise ValueError("session_id is required.")
+    state = get_active_relay(session_id)
     if state is None:
-        raise LookupError("current chat is not in coding mode.")
+        raise LookupError("current session is not in coding mode.")
     if not isinstance(mode, str):
         raise ValueError("mode must be a string.")
 

@@ -1,7 +1,15 @@
 import unittest
 
 from agent_spawner import StreamEvent
-from relay_runtime import ActiveRelayState, run_codex_turn, clear_active_relays, activate_relay, set_relay_mode
+from relay_runtime import (
+    ActiveRelayState,
+    activate_relay,
+    clear_active_relays,
+    get_active_relay,
+    prune_stale_relays_for_session_key,
+    run_codex_turn,
+    set_relay_mode,
+)
 
 
 class FakeCodexProcess:
@@ -61,7 +69,8 @@ class RelayRuntimeTests(unittest.TestCase):
             ),
         ]
         state = ActiveRelayState(
-            chat_id="chat-1",
+            session_id="sess-1",
+            session_key="key-1",
             agent="codex",
             codex_thread_id=None,
             workdir="/home/dontstarve/projects/coding-relay",
@@ -106,17 +115,32 @@ class RelayRuntimeTests(unittest.TestCase):
         )
 
     def test_set_relay_mode_updates_active_state(self):
-        state = activate_relay("chat-1", "/home/dontstarve/projects/coding-relay", "thread-123")
+        state = activate_relay("sess-1", "/home/dontstarve/projects/coding-relay", "thread-123", session_key="key-1")
         self.assertEqual(state.sandbox_mode, "workspace-write")
         self.assertFalse(state.yolo)
 
-        updated = set_relay_mode("chat-1", "readonly")
+        updated = set_relay_mode("sess-1", "readonly")
         self.assertEqual(updated.sandbox_mode, "read-only")
         self.assertFalse(updated.yolo)
 
-        updated = set_relay_mode("chat-1", "yolo")
+        updated = set_relay_mode("sess-1", "yolo")
         self.assertEqual(updated.sandbox_mode, "danger-full-access")
         self.assertTrue(updated.yolo)
+
+    def test_activate_relay_prunes_stale_state_for_same_session_key(self):
+        activate_relay("sess-old", "/home/dontstarve/projects/coding-relay", "thread-old", session_key="key-1")
+        state = activate_relay("sess-new", "/home/dontstarve/projects/coding-relay", "thread-new", session_key="key-1")
+
+        self.assertIsNone(get_active_relay("sess-old"))
+        self.assertEqual(state.session_id, "sess-new")
+
+    def test_prune_stale_relays_for_session_key_removes_other_session_ids(self):
+        activate_relay("sess-a", "/home/dontstarve/projects/coding-relay", "thread-a", session_key="key-1")
+        activate_relay("sess-b", "/home/dontstarve/projects/coding-relay", "thread-b", session_key="key-2")
+
+        removed = prune_stale_relays_for_session_key("key-1", keep_session_id="sess-missing")
+
+        self.assertEqual(removed, 1)
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ import json
 
 try:
     from .output_formatter import safe_format_turn_output
-    from .relay_context import extract_chat_id, extract_message_id
+    from .relay_context import extract_message_id, extract_session_id, extract_session_key
     from .relay_runtime import (
         activate_relay,
         persist_session_turn,
@@ -17,7 +17,7 @@ try:
     )
 except ImportError:  # pragma: no cover - direct import compatibility
     from output_formatter import safe_format_turn_output
-    from relay_context import extract_chat_id, extract_message_id
+    from relay_context import extract_message_id, extract_session_id, extract_session_key
     from relay_runtime import (
         activate_relay,
         persist_session_turn,
@@ -36,7 +36,8 @@ def coding_handoff(args, **kwargs):
     codex_thread_id = args.get("codex_thread_id")
     sandbox_mode = args.get("sandbox_mode")
     yolo = args.get("yolo")
-    chat_id = extract_chat_id(args) or extract_chat_id(kwargs)
+    session_id = extract_session_id(args) or extract_session_id(kwargs)
+    session_key = extract_session_key(args) or extract_session_key(kwargs)
     message_id = extract_message_id(args) or extract_message_id(kwargs)
 
     if agent != "codex":
@@ -69,12 +70,12 @@ def coding_handoff(args, **kwargs):
             ensure_ascii=False,
         )
 
-    if not isinstance(chat_id, str) or not chat_id.strip():
+    if not isinstance(session_id, str) or not session_id.strip():
         return json.dumps(
             {
                 "status": "rejected",
-                "reason": "invalid_chat_id",
-                "message": "chat_id is required to enter coding mode.",
+                "reason": "invalid_session_id",
+                "message": "session_id is required to enter coding mode.",
             },
             ensure_ascii=False,
         )
@@ -105,9 +106,10 @@ def coding_handoff(args, **kwargs):
         )
 
     state = activate_relay(
-        chat_id=chat_id.strip(),
+        session_id=session_id.strip(),
         workdir=resolved_workdir,
         codex_thread_id=codex_thread_id,
+        session_key=session_key,
         sandbox_mode=resolved_sandbox_mode,
         yolo=yolo_enabled,
     )

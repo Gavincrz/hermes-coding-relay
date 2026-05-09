@@ -3,46 +3,46 @@
 from __future__ import annotations
 
 try:
-    from .relay_context import extract_chat_id
+    from .relay_context import extract_session_id
     from .relay_runtime import get_active_relay, set_relay_mode, exit_coding_mode
 except ImportError:  # pragma: no cover - direct import compatibility
-    from relay_context import extract_chat_id
+    from relay_context import extract_session_id
     from relay_runtime import get_active_relay, set_relay_mode, exit_coding_mode
 
 
 def handle_relay_back_command(_raw_args, **kwargs):
-    """Exit coding mode for the current chat."""
-    chat_id = extract_chat_id(kwargs)
-    if exit_coding_mode_for_chat(chat_id):
+    """Exit coding mode for the current Hermes session."""
+    session_id = extract_session_id(kwargs)
+    if exit_coding_mode_for_session(session_id):
         return "已退出 coding mode，Hermes 重新接管。"
-    return "当前 chat 不在 coding mode。可先通过 coding_handoff 进入 relay 会话。"
+    return "当前 session 不在 coding mode。可先通过 coding_handoff 进入 relay 会话。"
 
 
 def handle_relay_mode_command(raw_args, **kwargs):
-    """Show or update the relay execution mode for the current chat."""
-    chat_id = extract_chat_id(kwargs)
-    if not isinstance(chat_id, str) or not chat_id:
+    """Show or update the relay execution mode for the current Hermes session."""
+    session_id = extract_session_id(kwargs)
+    if not isinstance(session_id, str) or not session_id:
         return _relay_mode_help()
 
-    state = get_active_relay(chat_id)
+    state = get_active_relay(session_id)
     if state is None:
-        return "当前 chat 不在 coding mode。可先通过 coding_handoff 进入 relay 会话。"
+        return "当前 session 不在 coding mode。可先通过 coding_handoff 进入 relay 会话。"
 
     requested = (raw_args or "").strip().lower()
     if not requested or requested == "status":
         return _describe_active_mode(state)
 
     try:
-        updated = set_relay_mode(chat_id, requested)
+        updated = set_relay_mode(session_id, requested)
     except ValueError:
         return _relay_mode_help()
 
     return f"已切换 relay 模式：{_format_mode_name(updated)}。"
 
 
-def exit_coding_mode_for_chat(chat_id: str | None) -> bool:
+def exit_coding_mode_for_session(session_id: str | None) -> bool:
     """Shared exit helper used by both slash command and gateway hook."""
-    return exit_coding_mode(chat_id)
+    return exit_coding_mode(session_id)
 
 
 def _describe_active_mode(state) -> str:
