@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 try:
-    from .relay_runtime import get_active_relay, run_codex_turn
+    from .relay_runtime import get_active_relay, persist_session_turn, run_codex_turn
     from .slash_commands import exit_coding_mode_for_chat
 except ImportError:  # pragma: no cover - direct import compatibility
-    from relay_runtime import get_active_relay, run_codex_turn
+    from relay_runtime import get_active_relay, persist_session_turn, run_codex_turn
     from slash_commands import exit_coding_mode_for_chat
 
 
@@ -23,6 +23,7 @@ def pre_gateway_dispatch(**kwargs):
         return None
 
     turn_result = run_codex_turn(state, text, message_id=_extract_message_id(kwargs))
+    persist_session_turn(state, text, turn_result)
     return {
         "action": "skip",
         "relay": {

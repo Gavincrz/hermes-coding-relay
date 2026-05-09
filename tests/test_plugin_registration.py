@@ -1,10 +1,12 @@
 import json
+import tempfile
 import unittest
 from pathlib import Path
 
 import yaml
 
 import __init__ as plugin
+import session_store
 from gateway_hook import pre_gateway_dispatch
 from handoff_tool import coding_handoff
 from relay_runtime import ActiveRelayState, clear_active_relays, get_active_relay
@@ -35,15 +37,22 @@ class FakeContext:
 
 
 class FakeRunnerResult:
-    def __init__(self, codex_thread_id="thread-123", agent_texts=None, errors=None):
+    def __init__(self, codex_thread_id="thread-123", agent_texts=None, errors=None, command_runs=None, file_changes=None):
         self.codex_thread_id = codex_thread_id
         self.agent_texts = agent_texts or []
         self.errors = errors or []
+        self.command_runs = command_runs or []
+        self.file_changes = file_changes or []
 
 
 class PluginRegistrationTests(unittest.TestCase):
     def setUp(self):
         clear_active_relays()
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
+        self.original_sessions_path = session_store.SESSIONS_PATH
+        session_store.SESSIONS_PATH = Path(self.temp_dir.name) / "run" / "sessions.json"
+        self.addCleanup(setattr, session_store, "SESSIONS_PATH", self.original_sessions_path)
 
     def test_plugin_manifest_contains_expected_capabilities(self):
         manifest = yaml.safe_load(Path("plugin.yaml").read_text(encoding="utf-8"))
@@ -89,6 +98,8 @@ class PluginRegistrationTests(unittest.TestCase):
         handoff_tool.run_codex_turn = lambda state, prompt, message_id=None: FakeRunnerResult(
             codex_thread_id="thread-123",
             agent_texts=["ready"],
+            command_runs=[{"command": "pytest -q", "exit_code": 0, "status": "completed"}],
+            file_changes=[{"path": "relay_runtime.py", "changes": [{"path": "relay_runtime.py"}]}],
         )
         self.addCleanup(setattr, handoff_tool, "run_codex_turn", original_runner)
 
@@ -116,6 +127,11 @@ class PluginRegistrationTests(unittest.TestCase):
             ),
         )
 
+        store = session_store.load_session_store()
+        self.assertEqual(len(store["sessions"]), 1)
+        self.assertEqual(store["sessions"][0]["codex_thread_id"], "thread-123")
+        self.assertIn("最近检查：pytest -q (exit 0)", store["sessions"][0]["summary"])
+
     def test_gateway_hook_defaults_to_passthrough(self):
         self.assertIsNone(pre_gateway_dispatch(event="anything"))
 
@@ -126,6 +142,7 @@ class PluginRegistrationTests(unittest.TestCase):
         gateway_hook.run_codex_turn = lambda state, prompt, message_id=None: FakeRunnerResult(
             codex_thread_id="thread-123",
             agent_texts=[f"reply:{prompt}"],
+            file_changes=[{"path": "gateway_hook.py", "changes": [{"path": "gateway_hook.py"}]}],
         )
         self.addCleanup(setattr, gateway_hook, "run_codex_turn", original_runner)
 
@@ -141,6 +158,10 @@ class PluginRegistrationTests(unittest.TestCase):
         self.assertEqual(result["action"], "skip")
         self.assertEqual(result["relay"]["messages"], ["reply:continue"])
         self.assertEqual(result["relay"]["codex_thread_id"], "thread-123")
+
+        store = session_store.load_session_store()
+        self.assertEqual(store["sessions"][0]["codex_thread_id"], "thread-123")
+        self.assertIn("最近结果：reply:continue", store["sessions"][0]["summary"])
 
     def test_gateway_hook_back_command_clears_active_state(self):
         from relay_runtime import activate_relay

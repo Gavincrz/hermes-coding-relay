@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 
 try:
-    from .relay_runtime import activate_relay, run_codex_turn, validate_workdir
+    from .relay_runtime import activate_relay, persist_session_turn, run_codex_turn, validate_workdir
 except ImportError:  # pragma: no cover - direct import compatibility
-    from relay_runtime import activate_relay, run_codex_turn, validate_workdir
+    from relay_runtime import activate_relay, persist_session_turn, run_codex_turn, validate_workdir
 
 
 def coding_handoff(args, **kwargs):
@@ -74,6 +74,7 @@ def coding_handoff(args, **kwargs):
     state = activate_relay(chat_id=chat_id.strip(), workdir=resolved_workdir, codex_thread_id=codex_thread_id)
     turn_result = run_codex_turn(state, prompt, message_id=message_id)
     state.codex_thread_id = turn_result.codex_thread_id or state.codex_thread_id
+    persist_session_turn(state, prompt, turn_result)
     if turn_result.errors:
         return json.dumps(
             {
