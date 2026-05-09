@@ -1,4 +1,4 @@
-"""Runtime relay state and Codex turn orchestration."""
+"""Runtime relay state, turn orchestration, and session persistence hooks."""
 
 from __future__ import annotations
 
@@ -9,9 +9,11 @@ from typing import Any
 try:
     from .agent_spawner import CodexSpawnError, start_codex_process
     from .event_adapter import adapt_stream_events
+    from .session_store import upsert_session_record
 except ImportError:  # pragma: no cover - direct import compatibility
     from agent_spawner import CodexSpawnError, start_codex_process
     from event_adapter import adapt_stream_events
+    from session_store import upsert_session_record
 
 
 ALLOWED_WORKDIR_ROOT = Path("~/projects").expanduser().resolve()
@@ -36,6 +38,8 @@ class RelayTurnResult:
     codex_thread_id: str | None
     agent_texts: list[str] = field(default_factory=list)
     errors: list[dict] = field(default_factory=list)
+    command_runs: list[dict[str, Any]] = field(default_factory=list)
+    file_changes: list[dict[str, Any]] = field(default_factory=list)
 
 
 _ACTIVE_RELAYS: dict[str, ActiveRelayState] = {}
@@ -111,6 +115,8 @@ def run_codex_turn(
     state.current_process = codex_process.process
     agent_texts: list[str] = []
     errors: list[dict] = []
+    command_runs: list[dict[str, Any]] = []
+    file_changes: list[dict[str, Any]] = []
     try:
         for event in adapt_stream_events(codex_process.iter_events()):
             if event.kind == "session_init":
@@ -119,6 +125,10 @@ def run_codex_turn(
                 text = event.payload.get("text")
                 if isinstance(text, str) and text:
                     agent_texts.append(text)
+            elif event.kind in {"command_started", "command_finished"}:
+                command_runs.append(dict(event.payload))
+            elif event.kind == "file_change":
+                file_changes.append(dict(event.payload))
             elif event.kind == "relay_error":
                 errors.append(dict(event.payload))
     finally:
@@ -128,6 +138,25 @@ def run_codex_turn(
         codex_thread_id=state.codex_thread_id,
         agent_texts=agent_texts,
         errors=errors,
+        command_runs=command_runs,
+        file_changes=file_changes,
+    )
+
+
+def persist_session_turn(state: ActiveRelayState, prompt: str, turn_result: Any) -> None:
+    """Persist a completed turn into run/sessions.json when a thread id exists."""
+    codex_thread_id = getattr(turn_result, "codex_thread_id", None) or state.codex_thread_id
+    if not isinstance(codex_thread_id, str) or not codex_thread_id:
+        return
+
+    upsert_session_record(
+        codex_thread_id=codex_thread_id,
+        agent=state.agent,
+        workdir=state.workdir,
+        prompt=prompt,
+        agent_texts=_as_str_list(getattr(turn_result, "agent_texts", [])),
+        command_runs=_as_dict_list(getattr(turn_result, "command_runs", [])),
+        file_changes=_as_dict_list(getattr(turn_result, "file_changes", [])),
     )
 
 
@@ -156,3 +185,15 @@ def _stop_process(process: Any) -> None:
     kill = getattr(process, "kill", None)
     if callable(kill):
         kill()
+
+
+def _as_str_list(values: Any) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    return [value for value in values if isinstance(value, str) and value]
+
+
+def _as_dict_list(values: Any) -> list[dict[str, Any]]:
+    if not isinstance(values, list):
+        return []
+    return [dict(value) for value in values if isinstance(value, dict)]

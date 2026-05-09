@@ -188,7 +188,7 @@
 
 ## T005 会话持久化与规则摘要
 
-状态：todo
+状态：done
 
 目标：
 
@@ -206,6 +206,14 @@
 
 - 不依赖额外 LLM 生成摘要
 - 第一版不做 thread memory
+- 已完成：新增 `session_store.py`，统一管理 `run/sessions.json` 的容错读写
+- 已完成：按规则从 `prompt`、`agent_message`、`file_change`、`command_execution` 生成可读 `summary`
+- 已完成：在 `coding_handoff` 首轮和 coding mode 后续 turn 后更新 `created_at`、`last_active_at`、`last_files`
+- 已完成：补充单测覆盖 summary 生成、持久化更新和 handoff / gateway 接线
+
+未完成内容：
+
+- 暂未在 Hermes handoff 前增加“继续还是新建”的实际交互入口；本任务先把持久化与摘要数据准备好
 
 下一步：
 
