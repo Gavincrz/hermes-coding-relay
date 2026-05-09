@@ -3,11 +3,11 @@
 try:
     from .gateway_hook import pre_gateway_dispatch
     from .handoff_tool import coding_handoff
-    from .slash_commands import handle_back_command
+    from .slash_commands import handle_relay_back_command, handle_relay_mode_command
 except ImportError:  # pragma: no cover - direct import compatibility
     from gateway_hook import pre_gateway_dispatch
     from handoff_tool import coding_handoff
-    from slash_commands import handle_back_command
+    from slash_commands import handle_relay_back_command, handle_relay_mode_command
 
 
 TOOL_SCHEMA = {
@@ -32,6 +32,15 @@ TOOL_SCHEMA = {
                 "type": "string",
                 "description": "Existing Codex thread id to resume.",
             },
+            "sandbox_mode": {
+                "type": "string",
+                "enum": ["read-only", "workspace-write", "danger-full-access"],
+                "description": "Codex sandbox mode. Defaults to 'workspace-write'.",
+            },
+            "yolo": {
+                "type": "boolean",
+                "description": "When true, bypass Codex approvals and sandbox entirely.",
+            },
         },
         "required": ["agent", "prompt", "workdir"],
         "additionalProperties": False,
@@ -50,7 +59,13 @@ def register(ctx):
     )
     ctx.register_hook("pre_gateway_dispatch", pre_gateway_dispatch)
     ctx.register_command(
-        "back",
-        handler=handle_back_command,
+        "relay-back",
+        handler=handle_relay_back_command,
         description="Exit coding mode and return control to Hermes.",
+    )
+    ctx.register_command(
+        "relay-mode",
+        handler=handle_relay_mode_command,
+        description="Show or switch the current relay execution mode.",
+        args_hint="[status|safe|readonly|yolo]",
     )

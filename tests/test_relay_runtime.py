@@ -1,7 +1,7 @@
 import unittest
 
 from agent_spawner import StreamEvent
-from relay_runtime import ActiveRelayState, run_codex_turn
+from relay_runtime import ActiveRelayState, run_codex_turn, clear_active_relays, activate_relay, set_relay_mode
 
 
 class FakeCodexProcess:
@@ -14,6 +14,9 @@ class FakeCodexProcess:
 
 
 class RelayRuntimeTests(unittest.TestCase):
+    def setUp(self):
+        clear_active_relays()
+
     def test_run_codex_turn_keeps_event_context_for_formatter(self):
         events = [
             StreamEvent(kind="raw_event", payload={"type": "thread.started", "thread_id": "thread-123"}),
@@ -101,6 +104,19 @@ class RelayRuntimeTests(unittest.TestCase):
                 }
             ],
         )
+
+    def test_set_relay_mode_updates_active_state(self):
+        state = activate_relay("chat-1", "/home/dontstarve/projects/coding-relay", "thread-123")
+        self.assertEqual(state.sandbox_mode, "workspace-write")
+        self.assertFalse(state.yolo)
+
+        updated = set_relay_mode("chat-1", "readonly")
+        self.assertEqual(updated.sandbox_mode, "read-only")
+        self.assertFalse(updated.yolo)
+
+        updated = set_relay_mode("chat-1", "yolo")
+        self.assertEqual(updated.sandbox_mode, "danger-full-access")
+        self.assertTrue(updated.yolo)
 
 
 if __name__ == "__main__":

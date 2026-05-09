@@ -276,3 +276,37 @@
 下一步：
 
 - 进入后续任务，补更真实的集成验证与平台适配
+
+---
+
+## T008 执行模式与 approval 边界
+
+状态：done
+
+目标：
+
+- 修复默认 Codex 会话只读导致无法编码的问题
+- 支持显式开启更激进的执行模式
+- 明确 v1 对 Codex 交互式 approval / choice 的支持边界
+
+完成标准：
+
+- 默认 handoff / relay turn 以可写工作区启动 Codex
+- `coding_handoff` 支持显式执行模式参数，至少包含 `yolo` 开关
+- 单测覆盖命令构造和参数校验
+- 文档明确说明当前不桥接 Codex 自身的交互式 approval 事件到飞书
+
+实现备注：
+
+- 第一版优先保证可靠 relay，不扩展成完整的人机协商代理
+- 若 Codex `exec --json` 未暴露稳定 approval 事件，则保留 `never` / `yolo` 两种无交互模式
+- 已完成：`agent_spawner.py` 默认改为 `workspace-write + -a never`，并支持显式 `yolo`
+- 已完成：`coding_handoff` 支持 `sandbox_mode` / `yolo` 参数校验与回显
+- 已完成：新增会话级 `/relay-mode [status|safe|readonly|yolo]` 控制，并保留 `/relay-back`
+- 已完成：coding mode 下除 relay 保留命令外，其余 slash 文本继续原样转给 Codex
+- 已完成：补充单测覆盖命令构造、模式切换、保留命令和 slash 透传
+- 已完成：设计、架构和决策文档同步写实 approval 边界与命令命名空间
+
+下一步：
+
+- 进入后续任务，评估是否需要单独做 Codex 交互事件桥接

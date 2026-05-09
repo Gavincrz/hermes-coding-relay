@@ -5,11 +5,11 @@ from __future__ import annotations
 try:
     from .output_formatter import safe_format_turn_output
     from .relay_runtime import get_active_relay, persist_session_turn, run_codex_turn
-    from .slash_commands import exit_coding_mode_for_chat
+    from .slash_commands import handle_relay_back_command, handle_relay_mode_command
 except ImportError:  # pragma: no cover - direct import compatibility
     from output_formatter import safe_format_turn_output
     from relay_runtime import get_active_relay, persist_session_turn, run_codex_turn
-    from slash_commands import exit_coding_mode_for_chat
+    from slash_commands import handle_relay_back_command, handle_relay_mode_command
 
 
 def pre_gateway_dispatch(**kwargs):
@@ -20,9 +20,21 @@ def pre_gateway_dispatch(**kwargs):
         return None
 
     text = _extract_text(kwargs)
-    if text.strip() == "/back":
-        exit_coding_mode_for_chat(chat_id)
+    command = text.strip()
+    if command in {"/back", "/relay-back"}:
+        handle_relay_back_command("", chat_id=chat_id)
         return None
+    if command.startswith("/relay-mode"):
+        raw_args = command[len("/relay-mode") :].strip()
+        return {
+            "action": "skip",
+            "relay": {
+                "chat_id": state.chat_id,
+                "codex_thread_id": state.codex_thread_id,
+                "messages": [handle_relay_mode_command(raw_args, chat_id=chat_id)],
+                "errors": [],
+            },
+        }
 
     turn_result = run_codex_turn(state, text, message_id=_extract_message_id(kwargs))
     turn_messages = safe_format_turn_output(turn_result)

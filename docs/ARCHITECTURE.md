@@ -10,6 +10,7 @@
 - gateway hook 在 coding mode 下绕过 Hermes LLM
 - Codex CLI 负责实际编码工作
 - 插件只负责状态、转发、事件解析和输出格式化
+- relay 控制面和 Codex 普通消息复用同一 chat，但保留独立命令前缀
 
 ## Installation Model
 
@@ -66,10 +67,12 @@
   - coding mode 下的消息拦截和转发
 
 - `slash_commands.py`
-  - `/back` 等会话控制命令
+  - `/relay-back`、`/relay-mode` 等 relay 控制命令
 
 - `agent_spawner.py`
   - Codex CLI 启动、终止、stdout/stderr 读取
+  - 安全模式下默认使用 `workspace-write + -a never`
+  - `yolo` 模式显式切换到 `--dangerously-bypass-approvals-and-sandbox`
 
 - `event_adapter.py`
   - 原始 Codex NDJSON 事件转内部事件
@@ -95,6 +98,7 @@
 - `output_formatter.py` 不应直接解析原始 Codex NDJSON
 - `session_store.py` 不应依赖平台输出逻辑
 - `__init__.py` 不应包含真实业务逻辑
+- `gateway_hook.py` 负责识别 relay 保留命令；其他 slash 文本在 coding mode 下继续转给 Codex
 
 ## Source Of Truth Vs Runtime State
 
@@ -125,6 +129,7 @@
 - `register(ctx)` 是否正确注册 tool / hook / command
 - `coding_handoff` 参数校验
 - gateway hook 的透传与后续拦截行为
+- relay 模式切换与保留命令边界
 - Codex 命令构造
 - NDJSON 解析和坏行容错
 - 输出格式化与常见错误映射

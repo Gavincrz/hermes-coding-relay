@@ -1,6 +1,6 @@
 # Coding Relay — Hermes Plugin 设计文档
 
-> 目标：让 Hermes 在识别到 coding 任务后，将对话无缝切到 Codex CLI；进入 coding mode 后，后续普通消息直接走 Codex，不再消耗 Hermes LLM token，直到用户显式 `/back`。
+> 目标：让 Hermes 在识别到 coding 任务后，将对话无缝切到 Codex CLI；进入 coding mode 后，后续普通消息直接走 Codex，不再消耗 Hermes LLM token，直到用户显式退出 relay 控制命令。
 
 ## 1. 第一版范围
 
@@ -10,7 +10,7 @@
 - 进入 coding mode 后，普通消息完全绕过 Hermes LLM
 - 通过 `coding_handoff` tool 进入 coding mode
 - 通过 `pre_gateway_dispatch` hook 接管后续消息
-- 通过 `/back` 退出 coding mode
+- 通过 `/relay-back` 退出 coding mode（保留 `/back` 兼容）
 - 运行态数据统一写入仓库内的 `run/`
 
 第一版**不做**：
@@ -33,7 +33,7 @@
   plugin 解析 Codex NDJSON 事件
   plugin 将结果格式化并回传 gateway
   用户后续普通消息直接转给 Codex
-  用户输入 /back 退出
+  用户输入 /relay-back 退出
 
 阶段 3：回到正常对话
   plugin 清理 active relay state
@@ -56,6 +56,8 @@ class ActiveRelayState:
     agent: str                  # 固定为 "codex"
     codex_thread_id: str | None
     workdir: str
+    sandbox_mode: str           # 默认 "workspace-write"
+    yolo: bool                  # 默认 False
     current_process: subprocess.Popen | None
     current_message_id: str | None
 ```
@@ -115,6 +117,8 @@ run/
 | `prompt` | string | 是 | Hermes 组装好的初始 prompt |
 | `workdir` | string | 是 | 工作目录 |
 | `codex_thread_id` | string | 否 | 如需恢复历史 Codex 会话则传入 |
+| `sandbox_mode` | string | 否 | `read-only` / `workspace-write` / `danger-full-access` |
+| `yolo` | boolean | 否 | 是否使用 Codex 的危险全开模式 |
 
 返回：
 
@@ -123,11 +127,13 @@ run/
   "status": "handed_off",
   "agent": "codex",
   "codex_thread_id": "019e0769-f520-7aa2-a219-da891e701f8d",
+  "sandbox_mode": "workspace-write",
+  "yolo": false,
   "initial_messages": [
     "已转接到 codex。",
     "命令完成：pytest -q (exit 0)"
   ],
-  "message": "已转接到 codex。后续消息直接发给它，发送 /back 回来找 Hermes。"
+  "message": "已转接到 codex。后续消息直接发给它，发送 /relay-back 回来找 Hermes。"
 }
 ```
 
@@ -139,7 +145,7 @@ run/
 4. 建立 `active relay state`
 5. 持久化更新 `run/sessions.json`
 
-### 5.2 Slash Command：`/back`
+### 5.2 Slash Command：`/relay-back`
 
 作用：
 
@@ -147,13 +153,32 @@ run/
 - 若当前有活跃 Codex 进程，则优先温和终止，再必要时强杀
 - 清理该 `chat_id` 的 `active relay state`
 
-### 5.3 Hook：`pre_gateway_dispatch`
+兼容性：
+
+- `/back` 在 coding mode 下仍可用，但作为兼容别名保留
+
+### 5.3 Slash Command：`/relay-mode`
+
+作用：
+
+- 查看当前 relay 执行模式
+- 在当前 chat 的 active relay state 上切换后续 turn 的执行策略
+
+支持值：
+
+- `status`
+- `safe`：`workspace-write + -a never`
+- `readonly`：`read-only + -a never`
+- `yolo`：`--dangerously-bypass-approvals-and-sandbox`
+
+### 5.4 Hook：`pre_gateway_dispatch`
 
 行为：
 
 - `chat_id` 不在 coding mode：返回 `None`
-- coding mode 中收到 `/back`：执行退出逻辑，返回 `None`
-- coding mode 中收到普通消息：转发给 Codex，返回 `{"action": "skip"}`，Hermes 不介入
+- coding mode 中收到 `/relay-back` 或兼容别名 `/back`：执行退出逻辑，返回 `None`
+- coding mode 中收到 `/relay-mode ...`：修改 active relay state，返回 `{"action": "skip"}`
+- coding mode 中收到其他普通消息或 slash 命令：原样转发给 Codex，返回 `{"action": "skip"}`，Hermes 不介入
 
 ## 6. Codex 调用方式
 
@@ -162,21 +187,29 @@ run/
 ### 6.1 新建会话
 
 ```bash
-codex -a never exec --json -C <workdir> "<prompt>"
+codex -a never -s workspace-write exec --json -C <workdir> "<prompt>"
 ```
 
 ### 6.2 恢复会话
 
 ```bash
-codex -a never exec resume <codex_thread_id> --json "<prompt>"
+codex -a never -s workspace-write exec resume <codex_thread_id> --json "<prompt>"
+```
+
+### 6.3 Yolo 模式
+
+```bash
+codex --dangerously-bypass-approvals-and-sandbox exec --json -C <workdir> "<prompt>"
 ```
 
 说明：
 
 - `--json`：输出 NDJSON
+- 默认 `workspace-write`：保证工作区内真实编码可写，不再落入只读会话
 - `-a never`：gateway 模式下不等待交互式 approval
 - `-C <workdir>`：仅新建会话时指定工作目录
 - resume 时以 `codex_thread_id` 为唯一恢复标识
+- `yolo` 用于显式放弃 sandbox 和 approval 边界，只在用户明确要求时开启
 
 ## 7. 事件解析分层
 
@@ -252,6 +285,24 @@ codex -a never exec resume <codex_thread_id> --json "<prompt>"
 6. `output_formatter` 自身异常时回退到原始 `agent_text`，不阻断 Codex 主流程
 
 如果 gateway / 飞书消息编辑能力不稳定，允许第一版退化为“连续发新消息”，不强制实现单消息流式编辑。
+
+### 9.1 Approval 与交互边界
+
+第一版支持两类交互：
+
+- 普通文本对话，包括 Codex 在 `agent_message` 中提出的方案选择
+- relay 控制命令：`/relay-back`、`/relay-mode`
+
+第一版不承诺：
+
+- 将 Codex 自身运行时的结构化 approval / choice 事件桥接成飞书按钮或确认框
+- 在 `exec --json` 上构建稳定的“等待用户批准后继续”的协议层
+
+因此 v1 的工程边界是：
+
+- 默认 `safe` 模式：`workspace-write + -a never`
+- 显式 `readonly`
+- 显式 `yolo`
 
 ## 10. 会话持久化与继续能力
 

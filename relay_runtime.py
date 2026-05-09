@@ -7,16 +7,26 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from .agent_spawner import CodexSpawnError, start_codex_process
+    from .agent_spawner import (
+        CodexSpawnError,
+        DEFAULT_SANDBOX_MODE,
+        VALID_SANDBOX_MODES,
+        start_codex_process,
+    )
     from .event_adapter import adapt_stream_events
     from .session_store import upsert_session_record
 except ImportError:  # pragma: no cover - direct import compatibility
-    from agent_spawner import CodexSpawnError, start_codex_process
+    from agent_spawner import CodexSpawnError, DEFAULT_SANDBOX_MODE, VALID_SANDBOX_MODES, start_codex_process
     from event_adapter import adapt_stream_events
     from session_store import upsert_session_record
 
 
 ALLOWED_WORKDIR_ROOT = Path("~/projects").expanduser().resolve()
+RELAY_MODE_PRESETS = {
+    "safe": {"sandbox_mode": DEFAULT_SANDBOX_MODE, "yolo": False},
+    "readonly": {"sandbox_mode": "read-only", "yolo": False},
+    "yolo": {"sandbox_mode": "danger-full-access", "yolo": True},
+}
 
 
 @dataclass
@@ -27,6 +37,8 @@ class ActiveRelayState:
     agent: str
     codex_thread_id: str | None
     workdir: str
+    sandbox_mode: str = DEFAULT_SANDBOX_MODE
+    yolo: bool = False
     current_process: Any = None
     current_message_id: str | None = None
 
@@ -55,13 +67,22 @@ def validate_workdir(workdir: str) -> str:
     return str(resolved)
 
 
-def activate_relay(chat_id: str, workdir: str, codex_thread_id: str | None = None) -> ActiveRelayState:
+def activate_relay(
+    chat_id: str,
+    workdir: str,
+    codex_thread_id: str | None = None,
+    *,
+    sandbox_mode: str = DEFAULT_SANDBOX_MODE,
+    yolo: bool = False,
+) -> ActiveRelayState:
     """Create or replace the active relay state for a chat."""
     state = ActiveRelayState(
         chat_id=chat_id,
         agent="codex",
         codex_thread_id=codex_thread_id,
         workdir=workdir,
+        sandbox_mode=sandbox_mode,
+        yolo=yolo,
     )
     _ACTIVE_RELAYS[chat_id] = state
     return state
@@ -90,6 +111,26 @@ def exit_coding_mode(chat_id: str | None) -> bool:
     return True
 
 
+def set_relay_mode(chat_id: str | None, mode: str) -> ActiveRelayState:
+    """Update the execution mode for the active relay session."""
+    if not isinstance(chat_id, str) or not chat_id:
+        raise ValueError("chat_id is required.")
+    state = get_active_relay(chat_id)
+    if state is None:
+        raise LookupError("current chat is not in coding mode.")
+    if not isinstance(mode, str):
+        raise ValueError("mode must be a string.")
+
+    normalized = mode.strip().lower()
+    preset = RELAY_MODE_PRESETS.get(normalized)
+    if preset is None:
+        raise ValueError("mode must be one of: readonly, safe, yolo.")
+
+    state.sandbox_mode = preset["sandbox_mode"]
+    state.yolo = preset["yolo"]
+    return state
+
+
 def run_codex_turn(
     state: ActiveRelayState,
     prompt: str,
@@ -104,6 +145,8 @@ def run_codex_turn(
             prompt=prompt,
             workdir=state.workdir,
             codex_thread_id=state.codex_thread_id,
+            sandbox_mode=state.sandbox_mode,
+            yolo=state.yolo,
         )
     except CodexSpawnError as exc:
         state.current_process = None
@@ -201,3 +244,26 @@ def _as_dict_list(values: Any) -> list[dict[str, Any]]:
     if not isinstance(values, list):
         return []
     return [dict(value) for value in values if isinstance(value, dict)]
+
+
+def validate_sandbox_mode(sandbox_mode: str | None) -> str:
+    """Validate the requested Codex sandbox mode."""
+    if sandbox_mode is None:
+        return DEFAULT_SANDBOX_MODE
+    if not isinstance(sandbox_mode, str):
+        raise ValueError("sandbox_mode must be a string.")
+    normalized = sandbox_mode.strip()
+    if normalized not in VALID_SANDBOX_MODES:
+        raise ValueError(
+            "sandbox_mode must be one of: " + ", ".join(sorted(VALID_SANDBOX_MODES)) + "."
+        )
+    return normalized
+
+
+def validate_yolo(yolo: Any) -> bool:
+    """Validate the optional yolo flag."""
+    if yolo is None:
+        return False
+    if isinstance(yolo, bool):
+        return yolo
+    raise ValueError("yolo must be a boolean.")

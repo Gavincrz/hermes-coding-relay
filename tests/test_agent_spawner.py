@@ -23,13 +23,23 @@ class FakeProcess:
 class AgentSpawnerTests(unittest.TestCase):
     def test_build_codex_command_for_new_session(self):
         command = build_codex_command(prompt="fix it", workdir="/repo")
-        self.assertEqual(command, ["codex", "-a", "never", "exec", "--json", "-C", "/repo", "fix it"])
+        self.assertEqual(
+            command,
+            ["codex", "-a", "never", "-s", "workspace-write", "exec", "--json", "-C", "/repo", "fix it"],
+        )
 
     def test_build_codex_command_for_resume(self):
         command = build_codex_command(prompt="continue", workdir="/repo", codex_thread_id="thread-123")
         self.assertEqual(
             command,
-            ["codex", "-a", "never", "exec", "resume", "thread-123", "--json", "continue"],
+            ["codex", "-a", "never", "-s", "workspace-write", "exec", "resume", "thread-123", "--json", "continue"],
+        )
+
+    def test_build_codex_command_for_yolo_session(self):
+        command = build_codex_command(prompt="fix it", workdir="/repo", yolo=True)
+        self.assertEqual(
+            command,
+            ["codex", "--dangerously-bypass-approvals-and-sandbox", "exec", "--json", "-C", "/repo", "fix it"],
         )
 
     def test_iter_events_extracts_thread_started(self):
@@ -93,7 +103,10 @@ class AgentSpawnerTests(unittest.TestCase):
 
         codex_process = start_codex_process(prompt="x", workdir="/repo", popen_factory=fake_popen)
 
-        self.assertEqual(codex_process.command, ["codex", "-a", "never", "exec", "--json", "-C", "/repo", "x"])
+        self.assertEqual(
+            codex_process.command,
+            ["codex", "-a", "never", "-s", "workspace-write", "exec", "--json", "-C", "/repo", "x"],
+        )
         self.assertEqual(recorded["kwargs"]["cwd"], "/repo")
         self.assertIsNotNone(recorded["kwargs"]["stdout"])
         self.assertIsNotNone(recorded["kwargs"]["stderr"])
