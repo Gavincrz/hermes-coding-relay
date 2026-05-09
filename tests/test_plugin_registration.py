@@ -114,7 +114,10 @@ class PluginRegistrationTests(unittest.TestCase):
         self.assertEqual(result["status"], "handed_off")
         self.assertEqual(result["agent"], "codex")
         self.assertEqual(result["codex_thread_id"], "thread-123")
-        self.assertEqual(result["initial_messages"], ["ready"])
+        self.assertEqual(
+            result["initial_messages"],
+            ["ready", "命令完成：pytest -q (exit 0)", "文件变更：relay_runtime.py"],
+        )
         self.assertEqual(
             get_active_relay("chat-1"),
             ActiveRelayState(
@@ -156,12 +159,40 @@ class PluginRegistrationTests(unittest.TestCase):
         result = pre_gateway_dispatch(chat_id="chat-1", text="continue", message_id="msg-2")
 
         self.assertEqual(result["action"], "skip")
-        self.assertEqual(result["relay"]["messages"], ["reply:continue"])
+        self.assertEqual(result["relay"]["messages"], ["reply:continue", "文件变更：gateway_hook.py"])
         self.assertEqual(result["relay"]["codex_thread_id"], "thread-123")
 
         store = session_store.load_session_store()
         self.assertEqual(store["sessions"][0]["codex_thread_id"], "thread-123")
         self.assertIn("最近结果：reply:continue", store["sessions"][0]["summary"])
+
+    def test_coding_handoff_returns_formatted_spawn_failure(self):
+        import handoff_tool
+
+        original_runner = handoff_tool.run_codex_turn
+        handoff_tool.run_codex_turn = lambda state, prompt, message_id=None: FakeRunnerResult(
+            codex_thread_id=None,
+            errors=[
+                {
+                    "reason": "spawn_failed",
+                    "message": "failed to start Codex CLI: [Errno 2] No such file or directory: 'codex'",
+                }
+            ],
+        )
+        self.addCleanup(setattr, handoff_tool, "run_codex_turn", original_runner)
+
+        result = json.loads(
+            coding_handoff(
+                {"agent": "codex", "prompt": "x", "workdir": "/home/dontstarve/projects/coding-relay"},
+                chat_id="chat-1",
+            )
+        )
+
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(
+            result["messages"],
+            ["Codex CLI 不可用：未找到 `codex` 命令，请先确认安装并已加入 PATH。"],
+        )
 
     def test_gateway_hook_back_command_clears_active_state(self):
         from relay_runtime import activate_relay

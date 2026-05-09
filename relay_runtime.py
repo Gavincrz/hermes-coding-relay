@@ -126,9 +126,13 @@ def run_codex_turn(
                 if isinstance(text, str) and text:
                     agent_texts.append(text)
             elif event.kind in {"command_started", "command_finished"}:
-                command_runs.append(dict(event.payload))
+                payload = dict(event.payload)
+                payload["event_kind"] = event.kind
+                command_runs.append(payload)
             elif event.kind == "file_change":
-                file_changes.append(dict(event.payload))
+                payload = dict(event.payload)
+                payload["event_kind"] = event.kind
+                file_changes.append(payload)
             elif event.kind == "relay_error":
                 errors.append(dict(event.payload))
     finally:
