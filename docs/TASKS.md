@@ -95,6 +95,33 @@
 
 ---
 
+## T002G 代码健康规则固化
+
+状态：done
+
+目标：
+
+- 把“反补丁化开发”和持续重构约束写入仓库规则
+- 同步更新项目初始化 skill，让新项目默认继承这套规范
+
+完成标准：
+
+- `AGENT.md` 明确代码健康、复用优先和小步重构规则
+- `project-bootstrap` skill 明确要求初始化阶段写入这些规则
+- skill 模板包含可复用的默认表述
+
+实现备注：
+
+- 已完成：在 `AGENT.md` 增加代码健康、复用优先、重构触发条件和测试安全网规则
+- 已完成：更新 `project-bootstrap/SKILL.md`，要求 bootstrap 时编码这类约束
+- 已完成：更新 `project-bootstrap/references/templates.md`，加入默认模板规则
+
+下一步：
+
+- 回到 T003，实现内部事件适配层
+
+---
+
 ## T003 内部事件适配层
 
 状态：todo
