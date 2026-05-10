@@ -75,7 +75,7 @@ This means `pip install .` is not the installation path for the current version.
 ├── slash_commands.py
 ├── agent_spawner.py
 ├── plugin.yaml
-├── AGENT.md
+├── AGENTS.md
 ├── DESIGN.md
 ├── docs/
 └── tests/
@@ -89,11 +89,11 @@ Planned later modules include:
 
 ## Development
 
-Important repo rules live in [AGENT.md](AGENT.md).
+Important repo rules live in [AGENTS.md](AGENTS.md).
 
 Before changing code, read:
 
-- [AGENT.md](AGENT.md)
+- [AGENTS.md](AGENTS.md)
 - [DESIGN.md](DESIGN.md)
 - [docs/TASKS.md](docs/TASKS.md)
 - [docs/DECISIONS.md](docs/DECISIONS.md)
