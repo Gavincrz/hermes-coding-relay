@@ -106,13 +106,13 @@
 
 完成标准：
 
-- `AGENT.md` 明确代码健康、复用优先和小步重构规则
+- `AGENTS.md` 明确代码健康、复用优先和小步重构规则
 - `project-bootstrap` skill 明确要求初始化阶段写入这些规则
 - skill 模板包含可复用的默认表述
 
 实现备注：
 
-- 已完成：在 `AGENT.md` 增加代码健康、复用优先、重构触发条件和测试安全网规则
+- 已完成：在 `AGENTS.md` 增加代码健康、复用优先、重构触发条件和测试安全网规则
 - 已完成：更新 `project-bootstrap/SKILL.md`，要求 bootstrap 时编码这类约束
 - 已完成：更新 `project-bootstrap/references/templates.md`，加入默认模板规则
 
@@ -325,12 +325,12 @@
 
 完成标准：
 
-- `AGENT.md` 明确禁止在当前仓库源码树内创建联调测试产物
+- `AGENTS.md` 明确禁止在当前仓库源码树内创建联调测试产物
 - `DESIGN.md`、`docs/DECISIONS.md` 写实真实 smoke 的默认落点和清理要求
 
 实现备注：
 
-- 已完成：`AGENT.md` 增加“真实联调默认使用 `~/projects` 下独立临时项目”的执行纪律
+- 已完成：`AGENTS.md` 增加“真实联调默认使用 `~/projects` 下独立临时项目”的执行纪律
 - 已完成：`DESIGN.md` 增加真实 smoke 不污染当前仓库源码树的边界说明
 - 已完成：`docs/DECISIONS.md` 新增 D009，固定该约束
 
@@ -367,3 +367,102 @@
 下一步：
 
 - 继续飞书端到端测试，验证 Hermes 真实 tool 调用路径现在可以成功进入 coding mode，并确认 `/reset` 后旧 relay 不再命中
+
+---
+
+## T011 OpenCode 支持里程碑
+
+状态：todo
+
+说明：
+
+- 这是 `opencode` 接入的总计划，不直接作为单一步骤执行
+- 后续严格按子任务顺序推进，一次只做一个子任务
+- 先调研边界，再做适配，最后做接线和测试
+
+下一步：
+
+- 先做 T011A，确认 `opencode` 的 CLI、resume 语义、事件格式和退出行为
+
+---
+
+## T011A OpenCode 调研与接入边界
+
+状态：todo
+
+目标：
+
+- 确认 `opencode` 的启动命令、resume 方式、事件输出格式和退出语义
+- 明确它与 Codex 在会话恢复、事件流和错误模型上的差异
+- 产出最小接入边界，不改主链路
+
+完成标准：
+
+- 有一份清晰的 `opencode` 接入边界说明
+- 明确哪些能力可直接复用现有层，哪些需要新适配
+- 明确是否需要独立的恢复标识、事件类型映射或错误转换
+
+实现备注：
+
+- 先调研，不写实现代码
+- 如果 `opencode` 的行为和 Codex 差异很大，优先记录分歧点，再决定适配拆分
+
+下一步：
+
+- 进入 T011B，实现 `opencode` 的 transport 和事件适配
+
+---
+
+## T011B OpenCode transport 与事件适配
+
+状态：todo
+
+目标：
+
+- 实现 `opencode` 的 spawn / resume
+- 把 `opencode` 原始事件接到内部事件适配层
+- 保持与现有 Codex 适配逻辑分离
+
+完成标准：
+
+- `opencode` 可以新建会话并恢复会话
+- 能把 `opencode` 事件转换成内部事件
+- 坏行、非零退出和 spawn 失败有独立处理
+- 有独立单测覆盖 transport 和事件映射
+
+实现备注：
+
+- 先做最小可用的 transport 封装
+- 不把 `opencode` 特有差异硬塞进 Codex 适配器
+
+下一步：
+
+- 进入 T011C，实现 relay 接线、模式选择和测试收口
+
+---
+
+## T011C OpenCode relay 接线与测试
+
+状态：todo
+
+目标：
+
+- 在 handoff 和 gateway 接线中支持选择 `opencode`
+- 让运行态、格式化和错误反馈继续走现有分层
+- 补齐文档和测试收口
+
+完成标准：
+
+- `coding_handoff` 可显式选择 `opencode`
+- `pre_gateway_dispatch` 能按 active relay state 转发到对应后端
+- `opencode` 的启动、恢复、事件解析和错误反馈均有独立测试
+- `DESIGN.md`、`docs/DECISIONS.md`、`docs/TASKS.md` 同步写实差异和约束
+
+实现备注：
+
+- 接线时优先复用现有状态管理和输出格式化
+- 不把 `opencode` 支持扩展成通用多 agent 平台
+
+下一步：
+
+- 等 T011A 和 T011B 完成后，再做 T011C
