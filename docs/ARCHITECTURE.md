@@ -106,7 +106,7 @@
 
 源码真相：
 
-- `AGENT.md`
+- `AGENTS.md`
 - `DESIGN.md`
 - `docs/TASKS.md`
 - `docs/DECISIONS.md`

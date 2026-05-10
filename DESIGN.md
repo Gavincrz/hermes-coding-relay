@@ -84,7 +84,7 @@ class ActiveRelayState:
 ├── event_adapter.py
 ├── output_formatter.py
 ├── session_store.py
-├── AGENT.md
+├── AGENTS.md
 ├── DESIGN.md
 └── docs/
 ```
