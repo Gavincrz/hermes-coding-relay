@@ -33,9 +33,9 @@ class OutputFormatterTests(unittest.TestCase):
             format_turn_output(turn_result),
             [
                 "已修复解析器。",
-                "命令开始：pytest -q",
-                "命令完成：pytest -q (exit 0)：2 passed",
-                "文件变更：relay_runtime.py, tests/test_runtime.py",
+                "**正在执行**\n`pytest -q`",
+                "**已完成**\n`pytest -q` (exit 0)\n```text\n2 passed\n```",
+                "**已修改文件**\n- `relay_runtime.py`\n- `tests/test_runtime.py`",
             ],
         )
 
@@ -65,9 +65,9 @@ class OutputFormatterTests(unittest.TestCase):
             format_turn_output(turn_result),
             [
                 "已修复解析器。",
-                "命令开始：pytest -q",
-                "命令完成：pytest -q (exit 0)：2 passed",
-                "文件变更：relay_runtime.py, tests/test_runtime.py",
+                "**正在执行**\n`pytest -q`",
+                "**已完成**\n`pytest -q` (exit 0)\n```text\n2 passed\n```",
+                "**已修改文件**\n- `relay_runtime.py`\n- `tests/test_runtime.py`",
             ],
         )
 
@@ -84,10 +84,10 @@ class OutputFormatterTests(unittest.TestCase):
         self.assertEqual(
             format_turn_output(turn_result),
             [
-                "Codex CLI 不可用：未找到 `codex` 命令，请先确认安装并已加入 PATH。",
-                "Codex 输出中存在无法解析的 JSON 行，已跳过异常内容并继续处理其余事件。",
-                "Codex 非正常退出 (exit 1)：boom",
-                "Codex 返回错误：rate limited",
+                "**执行失败**\nCodex CLI 不可用：未找到 `codex` 命令，请先确认安装并已加入 PATH。",
+                "**执行失败**\nCodex 输出中存在无法解析的 JSON 行，已跳过异常内容并继续处理其余事件。",
+                "**执行失败**\nCodex 非正常退出 (exit 1)：boom",
+                "**执行失败**\nCodex 返回错误：rate limited",
             ],
         )
 

@@ -134,11 +134,8 @@ run/
   "codex_thread_id": "019e0769-f520-7aa2-a219-da891e701f8d",
   "sandbox_mode": "workspace-write",
   "yolo": false,
-  "initial_messages": [
-    "已转接到 codex。",
-    "命令完成：pytest -q (exit 0)"
-  ],
-  "message": "已转接到 codex。后续消息直接发给它，发送 /relay-back 回来找 Hermes。"
+  "initial_messages": [],
+  "message": "已进入 coding-relay 模式。"
 }
 ```
 
@@ -148,7 +145,8 @@ run/
 2. 校验 `workdir` 位于允许的项目根内，且必须是具体项目子目录，不能是 `~/projects` 根本身
 3. 若传入 `codex_thread_id`，走 resume；否则新建会话
 4. 以当前 `session_id` 建立 `active relay state`
-5. 持久化更新 `run/sessions.json`
+5. 若具备 gateway/source 上下文，首轮 Codex 输出由 relay 按事件顺序直接发送给用户；Hermes 不复述 `initial_messages`
+6. 持久化更新 `run/sessions.json`
 
 ### 5.2 Slash Command：`/relay-back`
 
@@ -279,15 +277,26 @@ codex --dangerously-bypass-approvals-and-sandbox exec --json -C <workdir> "<prom
 
 建议策略：
 
-1. `agent_text`：完整输出
-2. `command_started` / `command_finished`：以简洁进度消息外显，保留命令执行上下文但不追求完整日志转储
-3. `file_change`：输出去重后的文件名摘要，必要时截断为少量文件 + 总数
-4. `relay_error`：给用户明确错误，而不是静默失败；至少覆盖 CLI 未安装、spawn 失败、非零退出和 JSON 解析异常
-5. `output_formatter` 自身异常时回退到原始 `agent_text`，不阻断 Codex 主流程
+1. `agent_text`：保留 Codex 原始 Markdown 文本，只做首尾空白清理，不压扁段落和代码块
+2. `command_started` / `command_finished`：以轻量 Markdown 进度消息外显，例如 `**正在执行**`、`**已完成**`，必要时附短输出代码块
+3. `file_change`：输出去重后的文件名列表，必要时截断为少量文件 + 剩余数量
+4. `relay_error`：统一给出明确错误标题和摘要，而不是静默失败；至少覆盖 CLI 未安装、spawn 失败、非零退出和 JSON 解析异常
+5. 每轮 turn 结束后补一条固定收尾消息：`**本轮完成**`
+6. `output_formatter` 自身异常时回退到原始 `agent_text`，不阻断 Codex 主流程
 
 第一版允许按事件顺序流式发送；如果 gateway / 飞书消息编辑能力不稳定，允许退化为“连续发新消息”，但仍要求消息顺序与事件顺序一致。
 
-### 9.1 Approval 与交互边界
+### 9.1 首轮 handoff 输出
+
+`coding_relay` 的首轮执行与后续 coding mode turn 采用同一条输出路径：
+
+1. Hermes 在调用 tool 前向用户展示完整 `prompt` 和 `workdir`
+2. relay 在 tool 执行期间直接把首轮 Codex 事件发送回用户
+3. tool 成功返回后，Hermes 只做极简确认，或不额外发送任何内容
+
+如果 handoff 时缺少 gateway/source 上下文，则允许退化为仅通过 `initial_messages` 返回首轮格式化内容，作为本地或测试环境兼容路径。
+
+### 9.2 Approval 与交互边界
 
 第一版支持两类交互：
 

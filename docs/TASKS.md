@@ -573,3 +573,40 @@
 下一步：
 
 - 做一次飞书端到端验证，确认 Hermes 在真实对话里优先使用 `coding_relay`
+
+---
+
+## T015 首轮 relay 输出归一化与飞书格式优化
+
+状态：done
+
+目标：
+
+- 让 `coding_relay` 的首轮 Codex 输出和后续 turn 走同一条 relay 发送链路
+- 避免 Hermes 在 tool 成功返回后重复转述首轮正文
+- 将命令、文件、错误和完成提示统一成更适合飞书的轻量 Markdown 样式
+
+完成标准：
+
+- handoff 时具备 gateway/source 上下文时，首轮 Codex 内容由 relay 直接发送给用户
+- `initial_messages` 不再是首轮正文的默认展示出口
+- `agent_text` 保留原始 Markdown 段落和代码块，不被压平成单行
+- 命令进度、文件变更、错误和完成提示采用统一模板
+- `skill/SKILL.md`、`DESIGN.md`、`docs/DECISIONS.md`、相关测试同步更新
+
+实现备注：
+
+- 已完成：新增 `relay_delivery.py`，抽取首轮 handoff 和后续 turn 共用的发送、串行流式输出和完成消息逻辑
+- 已完成：`handoff_tool.py` 在有 gateway/source 上下文时直接复用 relay 发送链路；无上下文时保留 `initial_messages` 兼容路径
+- 已完成：`gateway_hook.py` 复用同一发送辅助层，避免首轮和后续 turn 走两套独立实现
+- 已完成：`output_formatter.py` 改为轻量 Markdown 模板，命令/文件/错误/完成提示统一风格，并保留 `agent_text` 原始 Markdown 结构
+- 已完成：`skill/SKILL.md` 更新为“调用前展示完整 prompt/workdir，调用后不复述首轮正文”
+- 已完成：补充和更新单测，覆盖首轮直发、格式化模板和 Markdown 保真
+
+未完成内容：
+
+- 真实飞书端到端验证仍需在外部平台确认，不由当前单测替代
+
+下一步：
+
+- 做一次真实飞书验证，确认 Hermes 调 tool 前的提示、首轮 relay 直发和后续 turn 输出都符合预期

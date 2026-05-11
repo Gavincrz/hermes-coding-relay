@@ -167,9 +167,8 @@ metadata:
 
 调用 `coding_relay` **之后**，根据返回结果回复用户：
 
-- **成功（status=handed_off）**：直接展示 `initial_messages` 字段的内容，这是 Codex 的原始输出。不要总结、不要改写、不要加评论。在展示完 Codex 输出后，附上固定提示：
-  - Codex 输出会按事件顺序流式生成，可能包含 `agent_text`、简洁的命令开始/完成提示、文件变更摘要和错误信息。
-  > 🔄 已进入 coding-relay 模式。后续消息直接发给 Codex，发送 `/relay-back` 回来找 Hermes，发送 `/relay-mode` 查看/切换执行模式。
+- **成功（status=handed_off）**：不要再重复展示 tool 返回里的 `initial_messages`。首轮 Codex 输出和后续 turn 一样，会由 relay 自己按事件顺序直接发给用户。你在 tool 返回后只需要发送一条极简确认，或者不额外发送任何内容。
+- 首轮和后续 turn 的 relay 输出可能包含 `agent_text`、命令进度、文件变更摘要、错误信息和完成提示；这些内容由 relay 发送，不由 Hermes 复述。
 - **失败（status=error）**：展示 `messages` 和 `errors`，说明转交失败的原因。
 - **拒绝（status=rejected）**：说明被拒绝的原因（如 workdir 不合法），并建议用户修正后重试。
 

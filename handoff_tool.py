@@ -6,6 +6,7 @@ import json
 
 try:
     from .output_formatter import safe_format_turn_output
+    from .relay_delivery import has_delivery_context, resolve_source, stream_turn_sync
     from .relay_context import extract_message_id, extract_session_id, extract_session_key
     from .relay_runtime import (
         activate_relay,
@@ -18,6 +19,7 @@ try:
     )
 except ImportError:  # pragma: no cover - direct import compatibility
     from output_formatter import safe_format_turn_output
+    from relay_delivery import has_delivery_context, resolve_source, stream_turn_sync
     from relay_context import extract_message_id, extract_session_id, extract_session_key
     from relay_runtime import (
         activate_relay,
@@ -117,10 +119,23 @@ def coding_relay(args, **kwargs):
         sandbox_mode=resolved_sandbox_mode,
         yolo=yolo_enabled,
     )
-    turn_result = run_codex_turn(state, prompt, message_id=message_id)
+
+    source = resolve_source(kwargs)
+    if has_delivery_context(kwargs, source):
+        turn_result = stream_turn_sync(
+            kwargs=kwargs,
+            source=source,
+            state=state,
+            prompt=prompt,
+            message_id=message_id,
+        )
+        turn_messages: list[str] = []
+    else:
+        turn_result = run_codex_turn(state, prompt, message_id=message_id)
+        turn_messages = safe_format_turn_output(turn_result)
+        persist_session_turn(state, prompt, turn_result)
+
     state.codex_thread_id = turn_result.codex_thread_id or state.codex_thread_id
-    turn_messages = safe_format_turn_output(turn_result)
-    persist_session_turn(state, prompt, turn_result)
     if turn_result.errors:
         return json.dumps(
             {
@@ -144,7 +159,7 @@ def coding_relay(args, **kwargs):
             "sandbox_mode": resolved_sandbox_mode,
             "yolo": yolo_enabled,
             "initial_messages": turn_messages,
-            "message": "已转接到 codex。后续消息直接发给它，发送 /relay-back 回来找 Hermes。",
+            "message": "已进入 coding-relay 模式。",
         },
         ensure_ascii=False,
     )
