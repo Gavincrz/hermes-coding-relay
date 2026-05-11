@@ -70,15 +70,29 @@ class FakeSessionStore:
 
 
 class FakeEvent:
-    def __init__(self, chat_id="chat-1", message_id="msg-1"):
-        self.source = SimpleSource(chat_id)
+    def __init__(self, chat_id="chat-1", message_id="msg-1", platform="feishu"):
+        self.source = SimpleSource(chat_id, platform)
         self.message_id = message_id
         self.text = ""
 
 
 class SimpleSource:
-    def __init__(self, chat_id):
+    def __init__(self, chat_id, platform="feishu"):
         self.chat_id = chat_id
+        self.platform = platform
+
+
+class FakeAdapter:
+    def __init__(self):
+        self.messages = []
+
+    async def send(self, chat_id, text):
+        self.messages.append((chat_id, text))
+
+
+class FakeGateway:
+    def __init__(self, adapter):
+        self.adapters = {"feishu": adapter}
 
 
 class PluginRegistrationTests(unittest.TestCase):
@@ -183,7 +197,7 @@ class PluginRegistrationTests(unittest.TestCase):
         self.assertFalse(result["yolo"])
         self.assertEqual(
             result["initial_messages"],
-            ["ready", "命令开始：pytest -q", "命令完成：pytest -q (exit 0)", "文件变更：relay_runtime.py"],
+            ["ready", "**正在执行**\n`pytest -q`", "**已完成**\n`pytest -q` (exit 0)", "**已修改文件**\n- `relay_runtime.py`"],
         )
         self.assertEqual(
             get_active_relay("sess-1"),
@@ -203,6 +217,53 @@ class PluginRegistrationTests(unittest.TestCase):
         self.assertEqual(len(store["sessions"]), 1)
         self.assertEqual(store["sessions"][0]["codex_thread_id"], "thread-123")
         self.assertIn("最近检查：pytest -q (exit 0)", store["sessions"][0]["summary"])
+
+    def test_coding_relay_streams_first_turn_when_gateway_context_exists(self):
+        import handoff_tool
+        import relay_delivery
+
+        adapter = FakeAdapter()
+        gateway = FakeGateway(adapter)
+        event = FakeEvent(chat_id="chat-1", message_id="msg-1")
+
+        original_runner = relay_delivery.run_codex_turn
+        original_handoff_runner = handoff_tool.run_codex_turn
+        fake_runner = lambda state, prompt, message_id=None, event_sink=None: FakeRunnerResult(
+            codex_thread_id="thread-123",
+            agent_texts=["# 已完成\n\n最小项目已创建。"],
+            events=[
+                {"kind": "agent_text", "payload": {"text": "# 已完成\n\n最小项目已创建。"}},
+                {"kind": "command_started", "payload": {"command": "pytest -q"}},
+                {"kind": "command_finished", "payload": {"command": "pytest -q", "exit_code": 0, "output": "1 passed"}},
+            ],
+        )
+        relay_delivery.run_codex_turn = fake_runner
+        handoff_tool.run_codex_turn = fake_runner
+        self.addCleanup(setattr, relay_delivery, "run_codex_turn", original_runner)
+        self.addCleanup(setattr, handoff_tool, "run_codex_turn", original_handoff_runner)
+
+        result = json.loads(
+            coding_relay(
+                {"agent": "codex", "prompt": "x", "workdir": "/home/dontstarve/projects/coding-relay"},
+                task_id="sess-1",
+                message_id="msg-1",
+                gateway=gateway,
+                event=event,
+                session_store=FakeSessionStore(FakeSessionEntry("sess-1", "key-1")),
+            )
+        )
+
+        self.assertEqual(result["status"], "handed_off")
+        self.assertEqual(result["initial_messages"], [])
+        self.assertEqual(
+            adapter.messages,
+            [
+                ("chat-1", "# 已完成\n\n最小项目已创建。"),
+                ("chat-1", "**正在执行**\n`pytest -q`"),
+                ("chat-1", "**已完成**\n`pytest -q` (exit 0)\n```text\n1 passed\n```"),
+                ("chat-1", "**本轮完成**"),
+            ],
+        )
 
     def test_gateway_hook_defaults_to_passthrough(self):
         self.assertIsNone(pre_gateway_dispatch(event="anything"))
@@ -260,7 +321,7 @@ class PluginRegistrationTests(unittest.TestCase):
         self.assertEqual(result["status"], "error")
         self.assertEqual(
             result["messages"],
-            ["Codex CLI 不可用：未找到 `codex` 命令，请先确认安装并已加入 PATH。"],
+            ["**执行失败**\nCodex CLI 不可用：未找到 `codex` 命令，请先确认安装并已加入 PATH。"],
         )
 
     def test_gateway_hook_back_command_clears_active_state(self):

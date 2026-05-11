@@ -47,7 +47,7 @@ def format_turn_event(event: Any) -> list[str]:
             payload = {}
 
     if kind == "agent_text":
-        text = _compact(payload.get("text"))
+        text = _normalize_agent_text(payload.get("text"))
         return [text] if text else []
 
     if kind in {"command_started", "command_finished"}:
@@ -73,7 +73,8 @@ def _collect_agent_texts(turn_result: Any) -> list[str]:
     agent_texts = getattr(turn_result, "agent_texts", [])
     if not isinstance(agent_texts, list):
         return []
-    return [text for text in agent_texts if isinstance(text, str) and text]
+    normalized = [_normalize_agent_text(text) for text in agent_texts if isinstance(text, str)]
+    return [text for text in normalized if text]
 
 
 def _format_command_runs(command_runs: Any) -> list[str]:
@@ -101,18 +102,18 @@ def _format_command_event(event_kind: str, payload: dict[str, Any]) -> list[str]
         return []
 
     if event_kind == "command_started":
-        return [f"命令开始：{command}"]
+        return [f"**正在执行**\n`{command}`"]
 
     if event_kind != "command_finished":
         return []
 
-    summary = f"命令完成：{command}"
+    summary = f"**已完成**\n`{command}`"
     exit_code = payload.get("exit_code")
     if isinstance(exit_code, int):
         summary += f" (exit {exit_code})"
     output = _compact_output(payload.get("output"))
     if output:
-        summary += f"：{output}"
+        summary += f"\n```text\n{output}\n```"
     return [summary]
 
 
@@ -130,14 +131,7 @@ def _format_file_changes(file_changes: Any) -> list[str]:
         paths = _extract_change_paths(file_change)
         if not paths:
             continue
-        if len(paths) == 1:
-            messages.append(f"文件变更：{paths[0]}")
-            continue
-
-        displayed = ", ".join(paths[:MAX_FILE_LIST])
-        if len(paths) > MAX_FILE_LIST:
-            displayed += f" 等 {len(paths)} 个文件"
-        messages.append(f"文件变更：{displayed}")
+        messages.append(_build_file_change_message(paths))
     return messages
 
 
@@ -148,13 +142,7 @@ def _format_file_change_event(payload: dict[str, Any]) -> list[str]:
     paths = _extract_change_paths(payload)
     if not paths:
         return []
-    if len(paths) == 1:
-        return [f"文件变更：{paths[0]}"]
-
-    displayed = ", ".join(paths[:MAX_FILE_LIST])
-    if len(paths) > MAX_FILE_LIST:
-        displayed += f" 等 {len(paths)} 个文件"
-    return [f"文件变更：{displayed}"]
+    return [_build_file_change_message(paths)]
 
 
 def _extract_change_paths(file_change: dict[str, Any]) -> list[str]:
@@ -189,11 +177,11 @@ def _format_error(error: dict[str, Any]) -> str:
     if reason == "spawn_failed":
         lower_message = message.lower()
         if "no such file" in lower_message or "not found" in lower_message:
-            return "Codex CLI 不可用：未找到 `codex` 命令，请先确认安装并已加入 PATH。"
-        return f"启动 Codex 失败：{message or '无法创建 Codex 进程。'}"
+            return "**执行失败**\nCodex CLI 不可用：未找到 `codex` 命令，请先确认安装并已加入 PATH。"
+        return f"**执行失败**\n启动 Codex 失败：{message or '无法创建 Codex 进程。'}"
 
     if reason == "invalid_json_line":
-        return "Codex 输出中存在无法解析的 JSON 行，已跳过异常内容并继续处理其余事件。"
+        return "**执行失败**\nCodex 输出中存在无法解析的 JSON 行，已跳过异常内容并继续处理其余事件。"
 
     if reason == "process_exit":
         exit_code = error.get("exit_code")
@@ -205,15 +193,15 @@ def _format_error(error: dict[str, Any]) -> str:
             summary += f"：{stderr}"
         elif message:
             summary += f"：{message}"
-        return summary
+        return f"**执行失败**\n{summary}"
 
     if reason in {"codex_error", "codex_item_error"}:
-        return f"Codex 返回错误：{message or '请查看上一轮上下文。'}"
+        return f"**执行失败**\nCodex 返回错误：{message or '请查看上一轮上下文。'}"
 
     if reason == "relay_output_failed":
-        return f"relay 输出回传失败：{message or '请查看 gateway 日志。'}"
+        return f"**执行失败**\nrelay 输出回传失败：{message or '请查看 gateway 日志。'}"
 
-    return message or "relay 遇到未分类错误。"
+    return f"**执行失败**\n{message or 'relay 遇到未分类错误。'}"
 
 
 def _fallback_messages(turn_result: Any) -> list[str]:
@@ -237,3 +225,17 @@ def _compact_output(value: Any) -> str:
     if len(compact) <= MAX_OUTPUT_SNIPPET:
         return compact
     return compact[: MAX_OUTPUT_SNIPPET - 1].rstrip() + "…"
+
+
+def _normalize_agent_text(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    return value.strip()
+
+
+def _build_file_change_message(paths: list[str]) -> str:
+    displayed_paths = paths[:MAX_FILE_LIST]
+    lines = [f"- `{path}`" for path in displayed_paths]
+    if len(paths) > MAX_FILE_LIST:
+        lines.append(f"- 另有 {len(paths) - MAX_FILE_LIST} 个文件")
+    return "**已修改文件**\n" + "\n".join(lines)

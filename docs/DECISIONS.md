@@ -134,6 +134,23 @@
 - `coding_relay` 比 `coding_handoff` 更接近这套能力在用户侧的整体心智模型
 - 保留兼容别名可以降低现有导入路径的断裂风险
 
+## D014 首轮输出与后续 turn 共用 relay 发送链路
+
+日期：2026-05-11
+
+结论：
+
+- `coding_relay` 的首轮 Codex 输出不再默认依赖 Hermes 展示 `initial_messages`
+- 只要 handoff 时存在可用的 gateway/source，上下文中的首轮事件就由 relay 直接按顺序发送给用户
+- Hermes 在 tool 返回后只做极简确认，或不额外发送任何内容
+- relay 对外输出统一采用轻量 Markdown：保留原始 `agent_text`，命令/文件/错误/完成消息使用短标题模板
+
+理由：
+
+- 首轮和后续 turn 使用两套输出出口，会让用户体验和联调路径不一致
+- 让 Hermes 复述首轮正文，会造成重复消息和职责重叠
+- 飞书支持基础 Markdown，足以承载代码块、强调和链接，不需要引入更重的富文本协议
+
 ## D007 默认执行模式使用 `workspace-write + -a never`
 
 日期：2026-05-09
