@@ -87,7 +87,15 @@ metadata:
 | `agent` | 固定填 `"codex"` |
 | `prompt` | 组装好的任务描述，包含完整的上下文和意图 |
 | `workdir` | 工作目录绝对路径，必须是配置根 `plugins.coding-relay.workdir_root` 下的具体项目子目录，不能直接传配置根本身 |
-| `codex_thread_id` | 可选，如需恢复之前的 Codex 会话则传入 |
+| `codex_thread_id` | 可选，仅当用户明确要求恢复之前的 Codex 会话时才传入 |
+
+### resume 使用约束
+
+- `codex_thread_id` 是显式恢复开关，不是默认行为
+- 只有当用户明确表达“继续上次”“恢复上次”“resume 上次会话”这类意图时，才允许传 `codex_thread_id`
+- 用户没有明确要求 resume 时，默认新建 session
+- 不允许仅凭 `workdir`、`summary`、最近记录或“看起来像在继续”就隐式选择历史 session
+- 当前 coding mode 已经激活时，后续普通消息自然继续当前线程；这不属于重新 handoff 的 resume 决策
 
 ### prompt 组装原则
 
@@ -122,7 +130,7 @@ metadata:
 }
 ```
 
-**用户说**：上次做到哪了？
+**用户说**：恢复上次在这个项目里的 Codex 会话，告诉我上次做到哪了
 
 **你应该调用**：
 ```json
@@ -156,6 +164,13 @@ metadata:
 - `workdir` 必须位于插件配置读取到的 `workdir_root` 之下
 - 如果用户只说“某个项目根”但没有给出具体子目录，需要追问或根据上下文补成具体子目录
 - 在当前版本里，配置根本身不是合法 `workdir`
+
+### 默认新建 vs 显式恢复
+
+- 重新调用 `coding_relay` 时，默认行为是新建 session
+- 只有用户明确要求恢复历史会话时，才允许传 `codex_thread_id`
+- 如果用户只是说“继续做这个项目”但没有明确要求恢复上次会话，应优先新建 session，或先追问是否需要恢复历史线程
+- 不要把 `run/sessions.json` 当成默认自动匹配来源；它不是让 Hermes 隐式挑选历史线程的依据
 
 ## 调用 coding_relay 时的回复规范
 
