@@ -672,3 +672,33 @@
 下一步：
 
 - 真实飞书验证时，确认 Hermes 在未明确收到 resume 指令时不会构造 `codex_thread_id`
+
+---
+
+## T018 显式 resume 的历史会话提示
+
+状态：done
+
+目标：
+
+- 当 `coding_relay` 被显式传入 `codex_thread_id` 做 resume 时，向用户展示一条简洁的历史会话恢复提示
+- 使用 `sessions.json` 中的结构化记录告诉用户“上次做到哪了”，而不是倒最后几条原始消息
+
+完成标准：
+
+- 仅在显式 resume handoff 场景下输出恢复提示
+- 提示优先包含 `workdir`、`last_active_at`、`summary`、`last_files`
+- 若找不到历史记录，退化为最小恢复提示，不阻塞 handoff
+- 补充单测覆盖有记录和无记录的 resume 提示路径
+
+实现备注：
+
+- 本任务不做 `sessions.json` 搜索逻辑，只消费已显式传入的 `codex_thread_id`
+- 已完成：显式传入 `codex_thread_id` 时，handoff 会先生成“已恢复历史会话”提示
+- 已完成：提示优先展示 `workdir`、`last_active_at`、`summary`、`last_files`
+- 已完成：有 gateway/source 上下文时提示由 relay 直发；无上下文时提示进入 `initial_messages`
+- 已完成：补充单测覆盖 resume 提示的 gateway 和非 gateway 路径
+
+下一步：
+
+- 做一次真实飞书验证，确认 resume 提示和后续 Codex 输出顺序符合预期

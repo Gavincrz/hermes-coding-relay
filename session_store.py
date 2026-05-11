@@ -88,6 +88,18 @@ def load_session_store(path: Path | None = None) -> dict[str, list[dict[str, Any
     return {"sessions": normalized}
 
 
+def find_session_record(codex_thread_id: str, path: Path | None = None) -> dict[str, Any] | None:
+    """Return one persisted session record by Codex thread id if present."""
+    if not isinstance(codex_thread_id, str) or not codex_thread_id:
+        return None
+    store = load_session_store(path)
+    sessions = store.get("sessions")
+    if not isinstance(sessions, list):
+        return None
+    record = _find_record(sessions, codex_thread_id)
+    return dict(record) if isinstance(record, dict) else None
+
+
 def _write_session_store(store: dict[str, Any], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(store, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

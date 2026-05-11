@@ -296,7 +296,22 @@ codex --dangerously-bypass-approvals-and-sandbox exec --json -C <workdir> "<prom
 
 如果 handoff 时缺少 gateway/source 上下文，则允许退化为仅通过 `initial_messages` 返回首轮格式化内容，作为本地或测试环境兼容路径。
 
-### 9.2 Approval 与交互边界
+### 9.2 显式 resume 的恢复提示
+
+当 Hermes 在 handoff 时显式传入 `codex_thread_id`：
+
+1. relay 应先向用户展示一条“已恢复历史会话”提示
+2. 提示内容来自 `run/sessions.json` 中该线程的结构化记录，而不是最后几条原始消息
+3. 提示优先包含 `workdir`、`last_active_at`、`summary`、`last_files`
+4. 若历史记录不存在，退化为最小提示，不阻塞 resume 本身
+
+该提示只用于显式 resume handoff，不用于：
+
+- 当前 coding mode 内的自然后续消息
+- 新建 session 的 handoff
+- 基于模糊语义自动猜测历史线程
+
+### 9.3 Approval 与交互边界
 
 第一版支持两类交互：
 
