@@ -641,3 +641,34 @@
 下一步：
 
 - 若后续接入并验证其他平台，再扩充 README 的平台支持矩阵
+
+---
+
+## T017 resume 语义收紧到显式用户意图
+
+状态：done
+
+目标：
+
+- 明确 `coding_relay` 的历史会话恢复只能发生在用户明确要求 resume 的场景
+- 避免 Hermes 仅凭 `workdir`、`summary` 或“像是在继续”的模糊语义擅自复用旧 `codex_thread_id`
+
+完成标准：
+
+- `skill/SKILL.md` 明确区分“当前 coding mode 内继续对话”和“重新 handoff 时恢复历史 session”
+- `skill/SKILL.md` 明确要求：只有用户明确说继续上次、恢复上次或 resume 历史会话时，才允许传 `codex_thread_id`
+- `skill/SKILL.md` 明确要求：其他情况默认新建 session，不允许隐式选择 `sessions.json` 里的旧记录
+
+实现备注：
+
+- 已完成：收紧 skill 中对 `codex_thread_id` 的使用说明
+- 已完成：修正“上次做到哪了”示例，避免它继续暗示默认 resume
+- 本轮只改 skill 和任务记录，不改代码路径
+
+未完成内容：
+
+- 代码层仍未实现基于 `sessions.json` 的历史会话搜索；当前只有显式传入 `codex_thread_id` 才会 resume
+
+下一步：
+
+- 真实飞书验证时，确认 Hermes 在未明确收到 resume 指令时不会构造 `codex_thread_id`
