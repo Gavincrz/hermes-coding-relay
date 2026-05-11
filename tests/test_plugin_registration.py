@@ -1,6 +1,7 @@
 import json
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
@@ -228,15 +229,21 @@ class PluginRegistrationTests(unittest.TestCase):
 
         original_runner = relay_delivery.run_codex_turn
         original_handoff_runner = handoff_tool.run_codex_turn
-        fake_runner = lambda state, prompt, message_id=None, event_sink=None: FakeRunnerResult(
-            codex_thread_id="thread-123",
-            agent_texts=["# 已完成\n\n最小项目已创建。"],
-            events=[
+        def fake_runner(state, prompt, message_id=None, event_sink=None):
+            events = [
                 {"kind": "agent_text", "payload": {"text": "# 已完成\n\n最小项目已创建。"}},
                 {"kind": "command_started", "payload": {"command": "pytest -q"}},
                 {"kind": "command_finished", "payload": {"command": "pytest -q", "exit_code": 0, "output": "1 passed"}},
-            ],
-        )
+            ]
+            if callable(event_sink):
+                for event_record in events:
+                    event_sink(event_record)
+            return FakeRunnerResult(
+                codex_thread_id="thread-123",
+                agent_texts=["# 已完成\n\n最小项目已创建。"],
+                events=events,
+            )
+
         relay_delivery.run_codex_turn = fake_runner
         handoff_tool.run_codex_turn = fake_runner
         self.addCleanup(setattr, relay_delivery, "run_codex_turn", original_runner)
@@ -261,6 +268,124 @@ class PluginRegistrationTests(unittest.TestCase):
                 ("chat-1", "# 已完成\n\n最小项目已创建。"),
                 ("chat-1", "**正在执行**\n`pytest -q`"),
                 ("chat-1", "**已完成**\n`pytest -q` (exit 0)\n```text\n1 passed\n```"),
+                ("chat-1", "**本轮完成**"),
+            ],
+        )
+
+    def test_coding_relay_prepends_resume_notice_without_gateway_context(self):
+        import handoff_tool
+
+        session_store.upsert_session_record(
+            codex_thread_id="thread-123",
+            agent="codex",
+            workdir="/home/dontstarve/projects/coding-relay",
+            prompt="修复 relay 输出",
+            agent_texts=["已完成首轮修复。"],
+            command_runs=[{"command": "pytest -q", "exit_code": 0, "status": "completed"}],
+            file_changes=[{"path": "relay_delivery.py", "changes": [{"path": "relay_delivery.py"}]}],
+            now=datetime(2026, 5, 11, 11, 30, 0, tzinfo=timezone.utc),
+        )
+
+        original_runner = handoff_tool.run_codex_turn
+        handoff_tool.run_codex_turn = lambda state, prompt, message_id=None: FakeRunnerResult(
+            codex_thread_id="thread-123",
+            agent_texts=["继续处理完成。"],
+        )
+        self.addCleanup(setattr, handoff_tool, "run_codex_turn", original_runner)
+
+        result = json.loads(
+            coding_relay(
+                {
+                    "agent": "codex",
+                    "prompt": "继续处理",
+                    "workdir": "/home/dontstarve/projects/coding-relay",
+                    "codex_thread_id": "thread-123",
+                },
+                task_id="sess-1",
+                message_id="msg-1",
+            )
+        )
+
+        self.assertEqual(result["status"], "handed_off")
+        self.assertEqual(
+            result["initial_messages"][0],
+            "**已恢复历史会话**\n"
+            "- thread: `thread-123`\n"
+            "- workdir: `/home/dontstarve/projects/coding-relay`\n"
+            "- 上次活跃：`2026-05-11T11:30:00+00:00`\n"
+            "- 摘要：目标：修复 relay 输出；最近结果：已完成首轮修复。；最近文件：relay_delivery.py；最近检查：pytest -q (exit 0)\n"
+            "- 最近文件：`relay_delivery.py`",
+        )
+        self.assertEqual(result["initial_messages"][1:], ["继续处理完成。"])
+
+    def test_coding_relay_streams_resume_notice_before_first_turn_output(self):
+        import handoff_tool
+        import relay_delivery
+
+        session_store.upsert_session_record(
+            codex_thread_id="thread-123",
+            agent="codex",
+            workdir="/home/dontstarve/projects/coding-relay",
+            prompt="修复 relay 输出",
+            agent_texts=["已完成首轮修复。"],
+            command_runs=[{"command": "pytest -q", "exit_code": 0, "status": "completed"}],
+            file_changes=[{"path": "relay_delivery.py", "changes": [{"path": "relay_delivery.py"}]}],
+            now=datetime(2026, 5, 11, 11, 30, 0, tzinfo=timezone.utc),
+        )
+
+        adapter = FakeAdapter()
+        gateway = FakeGateway(adapter)
+        event = FakeEvent(chat_id="chat-1", message_id="msg-1")
+
+        original_runner = relay_delivery.run_codex_turn
+        original_handoff_runner = handoff_tool.run_codex_turn
+        def fake_runner(state, prompt, message_id=None, event_sink=None):
+            events = [{"kind": "agent_text", "payload": {"text": "继续处理完成。"}}]
+            if callable(event_sink):
+                for event_record in events:
+                    event_sink(event_record)
+            return FakeRunnerResult(
+                codex_thread_id="thread-123",
+                agent_texts=["继续处理完成。"],
+                events=events,
+            )
+
+        relay_delivery.run_codex_turn = fake_runner
+        handoff_tool.run_codex_turn = fake_runner
+        self.addCleanup(setattr, relay_delivery, "run_codex_turn", original_runner)
+        self.addCleanup(setattr, handoff_tool, "run_codex_turn", original_handoff_runner)
+
+        result = json.loads(
+            coding_relay(
+                {
+                    "agent": "codex",
+                    "prompt": "继续处理",
+                    "workdir": "/home/dontstarve/projects/coding-relay",
+                    "codex_thread_id": "thread-123",
+                },
+                task_id="sess-1",
+                message_id="msg-1",
+                gateway=gateway,
+                event=event,
+                session_store=FakeSessionStore(FakeSessionEntry("sess-1", "key-1")),
+            )
+        )
+
+        self.assertEqual(result["status"], "handed_off")
+        self.assertEqual(result["initial_messages"], [])
+        self.assertEqual(
+            adapter.messages,
+            [
+                (
+                    "chat-1",
+                    "**已恢复历史会话**\n"
+                    "- thread: `thread-123`\n"
+                    "- workdir: `/home/dontstarve/projects/coding-relay`\n"
+                    "- 上次活跃：`2026-05-11T11:30:00+00:00`\n"
+                    "- 摘要：目标：修复 relay 输出；最近结果：已完成首轮修复。；最近文件：relay_delivery.py；最近检查：pytest -q (exit 0)\n"
+                    "- 最近文件：`relay_delivery.py`",
+                ),
+                ("chat-1", "继续处理完成。"),
                 ("chat-1", "**本轮完成**"),
             ],
         )

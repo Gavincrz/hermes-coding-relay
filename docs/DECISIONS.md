@@ -151,6 +151,23 @@
 - 让 Hermes 复述首轮正文，会造成重复消息和职责重叠
 - 飞书支持基础 Markdown，足以承载代码块、强调和链接，不需要引入更重的富文本协议
 
+## D015 显式 resume 先展示结构化恢复提示
+
+日期：2026-05-11
+
+结论：
+
+- 当 `coding_relay` 被显式传入 `codex_thread_id` 做 resume 时，relay 先展示一条“已恢复历史会话”提示
+- 提示内容来源于 `run/sessions.json` 中该线程的结构化记录，不读取最后几条原始消息
+- 提示优先包含 `workdir`、`last_active_at`、`summary`、`last_files`
+- 如果没有对应记录，退化为最小提示，不阻塞 resume
+
+理由：
+
+- 用户需要确认当前恢复的是哪一个历史线程，以及上次做到哪里
+- 结构化摘要比“最后几条消息”更稳定，也更适合飞书阅读
+- 这条提示只在显式 resume 时出现，不会污染普通新建 session 或当前 coding mode 内的连续对话
+
 ## D007 默认执行模式使用 `workspace-write + -a never`
 
 日期：2026-05-09

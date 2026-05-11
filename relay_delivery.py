@@ -80,7 +80,15 @@ def send_chat_message_sync(kwargs: dict[str, Any], source: Any, text: str) -> No
         _log.warning("failed to send relay response", exc_info=True)
 
 
-def stream_turn_sync(*, kwargs: dict[str, Any], source: Any, state: Any, prompt: str, message_id: str | None) -> Any:
+def stream_turn_sync(
+    *,
+    kwargs: dict[str, Any],
+    source: Any,
+    state: Any,
+    prompt: str,
+    message_id: str | None,
+    prelude_messages: list[str] | None = None,
+) -> Any:
     """Run one turn and deliver normalized output in order."""
     streamed = False
 
@@ -91,6 +99,9 @@ def stream_turn_sync(*, kwargs: dict[str, Any], source: Any, state: Any, prompt:
             send_chat_message_sync(kwargs, source, message)
 
     try:
+        for message in prelude_messages or []:
+            if isinstance(message, str) and message:
+                send_chat_message_sync(kwargs, source, message)
         turn_result = run_codex_turn(state, prompt, message_id=message_id, event_sink=emit)
         persist_session_turn(state, prompt, turn_result)
         if not streamed:
