@@ -18,13 +18,55 @@ def safe_format_turn_output(turn_result: Any) -> list[str]:
 
 
 def format_turn_output(turn_result: Any) -> list[str]:
-    """Render agent text, command/file summaries, and user-facing errors."""
+    """Render turn events in the order they were observed."""
     messages: list[str] = []
+    for event in _collect_turn_events(turn_result):
+        messages.extend(format_turn_event(event))
+
+    if messages:
+        return [message for message in messages if isinstance(message, str) and message]
+
     messages.extend(_collect_agent_texts(turn_result))
     messages.extend(_format_command_runs(getattr(turn_result, "command_runs", [])))
     messages.extend(_format_file_changes(getattr(turn_result, "file_changes", [])))
     messages.extend(_format_errors(getattr(turn_result, "errors", [])))
     return [message for message in messages if isinstance(message, str) and message]
+
+
+def format_turn_event(event: Any) -> list[str]:
+    """Format one normalized relay event into zero or more user-facing messages."""
+    if isinstance(event, dict):
+        kind = _compact(event.get("kind"))
+        payload = event.get("payload")
+        if not isinstance(payload, dict):
+            payload = {}
+    else:
+        kind = _compact(getattr(event, "kind", ""))
+        payload = getattr(event, "payload", {})
+        if not isinstance(payload, dict):
+            payload = {}
+
+    if kind == "agent_text":
+        text = _compact(payload.get("text"))
+        return [text] if text else []
+
+    if kind in {"command_started", "command_finished"}:
+        return _format_command_event(kind, payload)
+
+    if kind == "file_change":
+        return _format_file_change_event(payload)
+
+    if kind == "relay_error":
+        return [_format_error(payload)]
+
+    return []
+
+
+def _collect_turn_events(turn_result: Any) -> list[Any]:
+    events = getattr(turn_result, "events", [])
+    if isinstance(events, list) and events:
+        return events
+    return []
 
 
 def _collect_agent_texts(turn_result: Any) -> list[str]:
@@ -42,56 +84,76 @@ def _format_command_runs(command_runs: Any) -> list[str]:
     for command_run in command_runs:
         if not isinstance(command_run, dict):
             continue
-
-        command = _compact(command_run.get("command"))
-        if not command:
-            continue
-
         event_kind = _compact(command_run.get("event_kind"))
-        if event_kind == "command_started":
-            messages.append(f"执行命令：{command}")
-            continue
-
-        exit_code = command_run.get("exit_code")
-        status = _compact(command_run.get("status"))
-        summary = f"命令完成：{command}"
-        if isinstance(exit_code, int):
-            summary += f" (exit {exit_code})"
-        elif status:
-            summary += f" ({status})"
-
-        output = _compact_output(command_run.get("output"))
-        if output:
-            summary += f" 输出摘要：{output}"
-        messages.append(summary)
-
+        payload = {
+            "command": command_run.get("command"),
+            "output": command_run.get("output"),
+            "exit_code": command_run.get("exit_code"),
+            "status": command_run.get("status"),
+        }
+        messages.extend(_format_command_event(event_kind, payload))
     return messages
+
+
+def _format_command_event(event_kind: str, payload: dict[str, Any]) -> list[str]:
+    command = _compact(payload.get("command"))
+    if not command:
+        return []
+
+    if event_kind == "command_started":
+        return [f"命令开始：{command}"]
+
+    if event_kind != "command_finished":
+        return []
+
+    summary = f"命令完成：{command}"
+    exit_code = payload.get("exit_code")
+    if isinstance(exit_code, int):
+        summary += f" (exit {exit_code})"
+    output = _compact_output(payload.get("output"))
+    if output:
+        summary += f"：{output}"
+    return [summary]
 
 
 def _format_file_changes(file_changes: Any) -> list[str]:
     if not isinstance(file_changes, list):
         return []
 
-    completed_paths: list[str] = []
+    messages: list[str] = []
     for file_change in file_changes:
         if not isinstance(file_change, dict):
             continue
         if _compact(file_change.get("phase")) not in {"", "completed"}:
             continue
 
-        for path in _extract_change_paths(file_change):
-            if path not in completed_paths:
-                completed_paths.append(path)
+        paths = _extract_change_paths(file_change)
+        if not paths:
+            continue
+        if len(paths) == 1:
+            messages.append(f"文件变更：{paths[0]}")
+            continue
 
-    if not completed_paths:
+        displayed = ", ".join(paths[:MAX_FILE_LIST])
+        if len(paths) > MAX_FILE_LIST:
+            displayed += f" 等 {len(paths)} 个文件"
+        messages.append(f"文件变更：{displayed}")
+    return messages
+
+
+def _format_file_change_event(payload: dict[str, Any]) -> list[str]:
+    if _compact(payload.get("phase")) not in {"", "completed"}:
         return []
 
-    if len(completed_paths) == 1:
-        return [f"文件变更：{completed_paths[0]}"]
+    paths = _extract_change_paths(payload)
+    if not paths:
+        return []
+    if len(paths) == 1:
+        return [f"文件变更：{paths[0]}"]
 
-    displayed = ", ".join(completed_paths[:MAX_FILE_LIST])
-    if len(completed_paths) > MAX_FILE_LIST:
-        displayed += f" 等 {len(completed_paths)} 个文件"
+    displayed = ", ".join(paths[:MAX_FILE_LIST])
+    if len(paths) > MAX_FILE_LIST:
+        displayed += f" 等 {len(paths)} 个文件"
     return [f"文件变更：{displayed}"]
 
 
@@ -147,6 +209,9 @@ def _format_error(error: dict[str, Any]) -> str:
 
     if reason in {"codex_error", "codex_item_error"}:
         return f"Codex 返回错误：{message or '请查看上一轮上下文。'}"
+
+    if reason == "relay_output_failed":
+        return f"relay 输出回传失败：{message or '请查看 gateway 日志。'}"
 
     return message or "relay 遇到未分类错误。"
 

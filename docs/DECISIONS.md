@@ -79,12 +79,60 @@
 
 结论：
 
-- 第一版 `workdir` 只允许位于约定项目根，例如 `~/projects/*`
+- 第一版 `workdir` 只允许位于约定项目根下的具体子目录，例如 `~/projects/*`
+- `~/projects` 根目录本身不算合法 `workdir`
 
 理由：
 
 - 缩小文件和命令执行边界
 - 降低误操作风险
+
+## D011 `codex exec` 不支持斜杠命令
+
+日期：2026-05-11
+
+结论：
+
+- 第一版 `codex exec` 路径不承诺支持 `/status` 这类斜杠命令
+- 这类命令只属于 Codex 交互模式，不应被 relay 当成可靠能力
+
+理由：
+
+- `codex exec` 的执行模型是非交互式的
+- 端到端联调里已经确认斜杠命令不会按预期生效
+- 先把限制文档化，避免用户继续把它当成可用能力
+
+## D012 relay 配置与输出采用插件级约束
+
+日期：2026-05-11
+
+结论：
+
+- `workdir_root` 作为插件级配置，从 `plugins.coding-relay.workdir_root` 读取，默认值为 `~/projects`
+- `validate_workdir` 和 tool schema description 都基于同一个配置来源生成
+- Codex turn 输出按事件顺序流式发送，turn 完成后额外补一条收尾消息
+
+理由：
+
+- 运行时校验和模型侧约束必须一致，避免 prompt 和实际行为打架
+- 允许在不改 Hermes 核心的前提下调整项目根边界
+- 用户需要看到有价值的进度、命令和错误信息，而不是只看最终结论
+
+## D013 对外 tool 名统一为 `coding_relay`
+
+日期：2026-05-11
+
+结论：
+
+- 插件和 skill 继续使用 `coding-relay`
+- Hermes 对外注册的 tool 名统一为 `coding_relay`
+- 旧的 Python 符号名 `coding_handoff` 只作为兼容别名保留，不再作为文档化入口
+
+理由：
+
+- 插件名、skill 名和 tool 名长期不一致，会提高模型和人工使用时的混淆概率
+- `coding_relay` 比 `coding_handoff` 更接近这套能力在用户侧的整体心智模型
+- 保留兼容别名可以降低现有导入路径的断裂风险
 
 ## D007 默认执行模式使用 `workspace-write + -a never`
 
@@ -140,7 +188,7 @@
 
 结论：
 
-- `coding_handoff` 不再以 `chat_id` 作为进入 coding mode 的前提
+- `coding_relay` 不再以 `chat_id` 作为进入 coding mode 的前提
 - active relay state 以内存态 `session_id` 为主键
 - 同一 `session_key` 下若出现新的 `session_id`，旧 relay state 自动清理
 - `codex_thread_id` 继续作为可恢复的持久化标识，和 active coding mode 解耦

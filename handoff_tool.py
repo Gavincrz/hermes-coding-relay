@@ -9,6 +9,7 @@ try:
     from .relay_context import extract_message_id, extract_session_id, extract_session_key
     from .relay_runtime import (
         activate_relay,
+        ensure_workdir_ready,
         persist_session_turn,
         run_codex_turn,
         validate_sandbox_mode,
@@ -20,6 +21,7 @@ except ImportError:  # pragma: no cover - direct import compatibility
     from relay_context import extract_message_id, extract_session_id, extract_session_key
     from relay_runtime import (
         activate_relay,
+        ensure_workdir_ready,
         persist_session_turn,
         run_codex_turn,
         validate_sandbox_mode,
@@ -28,7 +30,7 @@ except ImportError:  # pragma: no cover - direct import compatibility
     )
 
 
-def coding_handoff(args, **kwargs):
+def coding_relay(args, **kwargs):
     """Validate handoff arguments, enter coding mode, and start the first Codex turn."""
     agent = args.get("agent")
     prompt = args.get("prompt")
@@ -92,6 +94,8 @@ def coding_handoff(args, **kwargs):
             ensure_ascii=False,
         )
 
+    ensure_workdir_ready(resolved_workdir)
+
     try:
         resolved_sandbox_mode = validate_sandbox_mode(sandbox_mode)
         yolo_enabled = validate_yolo(yolo)
@@ -144,3 +148,6 @@ def coding_handoff(args, **kwargs):
         },
         ensure_ascii=False,
     )
+
+
+coding_handoff = coding_relay

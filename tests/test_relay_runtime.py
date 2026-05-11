@@ -5,10 +5,12 @@ from relay_runtime import (
     ActiveRelayState,
     activate_relay,
     clear_active_relays,
+    ensure_workdir_ready,
     get_active_relay,
     prune_stale_relays_for_session_key,
     run_codex_turn,
     set_relay_mode,
+    validate_workdir,
 )
 
 
@@ -80,6 +82,42 @@ class RelayRuntimeTests(unittest.TestCase):
 
         self.assertEqual(result.codex_thread_id, "thread-123")
         self.assertEqual(
+            result.events,
+            [
+                {"kind": "session_init", "payload": {"codex_thread_id": "thread-123"}},
+                {
+                    "kind": "command_started",
+                    "payload": {
+                        "item_id": "cmd-1",
+                        "command": "pytest -q",
+                        "output": "",
+                        "exit_code": None,
+                        "status": "in_progress",
+                    },
+                },
+                {
+                    "kind": "command_finished",
+                    "payload": {
+                        "item_id": "cmd-1",
+                        "command": "pytest -q",
+                        "output": "1 passed\n",
+                        "exit_code": 0,
+                        "status": "completed",
+                    },
+                },
+                {
+                    "kind": "file_change",
+                    "payload": {
+                        "item_id": "file-1",
+                        "phase": "completed",
+                        "status": "completed",
+                        "path": "output_formatter.py",
+                        "changes": [{"path": "output_formatter.py"}],
+                    },
+                },
+            ],
+        )
+        self.assertEqual(
             result.command_runs,
             [
                 {
@@ -141,6 +179,44 @@ class RelayRuntimeTests(unittest.TestCase):
         removed = prune_stale_relays_for_session_key("key-1", keep_session_id="sess-missing")
 
         self.assertEqual(removed, 1)
+
+    def test_ensure_workdir_ready_creates_missing_dir_and_git(self):
+        import shutil
+        import tempfile
+
+        tmp = tempfile.mkdtemp()
+        try:
+            target = tmp + "/sub/project"
+            self.assertFalse(__import__("os").path.exists(target))
+            ensure_workdir_ready(target)
+            self.assertTrue(__import__("os").path.isdir(target))
+            self.assertTrue(__import__("os").path.isdir(target + "/.git"))
+        finally:
+            shutil.rmtree(tmp)
+
+    def test_ensure_workdir_ready_skips_init_if_git_exists(self):
+        import shutil
+        import subprocess
+        import tempfile
+
+        tmp = tempfile.mkdtemp()
+        try:
+            subprocess.run(["git", "init"], cwd=tmp, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+            head_before = (__import__("os").path.isdir(tmp + "/.git"))
+            ensure_workdir_ready(tmp)
+            self.assertTrue(head_before)
+        finally:
+            shutil.rmtree(tmp)
+
+    def test_validate_workdir_rejects_project_root_itself(self):
+        with self.assertRaises(ValueError):
+            validate_workdir("/home/dontstarve/projects")
+
+    def test_validate_workdir_allows_project_subdirectory(self):
+        self.assertEqual(
+            validate_workdir("/home/dontstarve/projects/coding-relay"),
+            "/home/dontstarve/projects/coding-relay",
+        )
 
 
 if __name__ == "__main__":

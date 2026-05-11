@@ -4,15 +4,42 @@ from output_formatter import format_turn_output, safe_format_turn_output
 
 
 class FakeTurnResult:
-    def __init__(self, agent_texts=None, command_runs=None, file_changes=None, errors=None):
+    def __init__(self, agent_texts=None, command_runs=None, file_changes=None, errors=None, events=None):
         self.agent_texts = agent_texts or []
         self.command_runs = command_runs or []
         self.file_changes = file_changes or []
         self.errors = errors or []
+        self.events = events or []
 
 
 class OutputFormatterTests(unittest.TestCase):
-    def test_format_turn_output_renders_agent_text_command_and_file_change(self):
+    def test_format_turn_output_renders_events_in_order(self):
+        turn_result = FakeTurnResult(
+            events=[
+                {"kind": "agent_text", "payload": {"text": "已修复解析器。"}},
+                {"kind": "command_started", "payload": {"command": "pytest -q"}},
+                {
+                    "kind": "command_finished",
+                    "payload": {"command": "pytest -q", "exit_code": 0, "output": "2 passed\n"},
+                },
+                {
+                    "kind": "file_change",
+                    "payload": {"phase": "completed", "path": "relay_runtime.py", "changes": [{"path": "relay_runtime.py"}, {"path": "tests/test_runtime.py"}]},
+                },
+            ],
+        )
+
+        self.assertEqual(
+            format_turn_output(turn_result),
+            [
+                "已修复解析器。",
+                "命令开始：pytest -q",
+                "命令完成：pytest -q (exit 0)：2 passed",
+                "文件变更：relay_runtime.py, tests/test_runtime.py",
+            ],
+        )
+
+    def test_format_turn_output_falls_back_to_legacy_collections(self):
         turn_result = FakeTurnResult(
             agent_texts=["已修复解析器。"],
             command_runs=[
@@ -38,8 +65,8 @@ class OutputFormatterTests(unittest.TestCase):
             format_turn_output(turn_result),
             [
                 "已修复解析器。",
-                "执行命令：pytest -q",
-                "命令完成：pytest -q (exit 0) 输出摘要：2 passed",
+                "命令开始：pytest -q",
+                "命令完成：pytest -q (exit 0)：2 passed",
                 "文件变更：relay_runtime.py, tests/test_runtime.py",
             ],
         )

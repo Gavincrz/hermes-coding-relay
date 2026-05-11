@@ -25,21 +25,21 @@ class AgentSpawnerTests(unittest.TestCase):
         command = build_codex_command(prompt="fix it", workdir="/repo")
         self.assertEqual(
             command,
-            ["codex", "-a", "never", "-s", "workspace-write", "exec", "--json", "-C", "/repo", "fix it"],
+            ["codex", "-a", "never", "-s", "workspace-write", "exec", "--skip-git-repo-check", "--json", "-C", "/repo", "fix it"],
         )
 
     def test_build_codex_command_for_resume(self):
         command = build_codex_command(prompt="continue", workdir="/repo", codex_thread_id="thread-123")
         self.assertEqual(
             command,
-            ["codex", "-a", "never", "-s", "workspace-write", "exec", "resume", "thread-123", "--json", "continue"],
+            ["codex", "-a", "never", "-s", "workspace-write", "exec", "--skip-git-repo-check", "resume", "thread-123", "--json", "continue"],
         )
 
     def test_build_codex_command_for_yolo_session(self):
         command = build_codex_command(prompt="fix it", workdir="/repo", yolo=True)
         self.assertEqual(
             command,
-            ["codex", "--dangerously-bypass-approvals-and-sandbox", "exec", "--json", "-C", "/repo", "fix it"],
+            ["codex", "--dangerously-bypass-approvals-and-sandbox", "exec", "--skip-git-repo-check", "--json", "-C", "/repo", "fix it"],
         )
 
     def test_iter_events_extracts_thread_started(self):
@@ -105,7 +105,7 @@ class AgentSpawnerTests(unittest.TestCase):
 
         self.assertEqual(
             codex_process.command,
-            ["codex", "-a", "never", "-s", "workspace-write", "exec", "--json", "-C", "/repo", "x"],
+            ["codex", "-a", "never", "-s", "workspace-write", "exec", "--skip-git-repo-check", "--json", "-C", "/repo", "x"],
         )
         self.assertEqual(recorded["kwargs"]["cwd"], "/repo")
         self.assertIsNotNone(recorded["kwargs"]["stdout"])

@@ -9,7 +9,7 @@ This repository is early-stage.
 What exists today:
 
 - Hermes directory plugin skeleton
-- `coding_handoff` tool registration
+- `coding_relay` tool registration
 - `pre_gateway_dispatch` hook registration
 - `/back` command registration
 - Codex CLI command construction and NDJSON event streaming foundation
@@ -31,7 +31,7 @@ The current v1 implementation focus is a reliable Codex-first relay. Broader mul
 The intended v1 flow is:
 
 1. Hermes decides a request is a coding task.
-2. Hermes calls `coding_handoff`.
+2. Hermes calls `coding_relay`.
 3. The plugin starts or resumes a Codex CLI session.
 4. Gateway messages are relayed to Codex while coding mode is active.
 5. `/back` exits coding mode and returns control to Hermes.

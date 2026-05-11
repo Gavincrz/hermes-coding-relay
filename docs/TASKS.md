@@ -15,7 +15,7 @@
 
 - 建立 Hermes plugin 最小骨架
 - 能被 Hermes 发现并加载
-- 注册 `coding_handoff`、`pre_gateway_dispatch`、`/relay-back`
+- 注册 `coding_relay`、`pre_gateway_dispatch`、`/relay-back`
 
 完成标准：
 
@@ -166,7 +166,7 @@
 
 完成标准：
 
-- `coding_handoff` 后 chat 进入 active relay state
+- `coding_relay` 后 chat 进入 active relay state
 - `pre_gateway_dispatch` 在 coding mode 下拦截普通消息
 - `/relay-back` 能清理 active state，并在有活跃进程时停止它
 
@@ -175,7 +175,7 @@
 - 只处理单 chat 单 active Codex 会话
 - 不做复杂并发调度
 - 已完成：新增 `relay_runtime.py`，集中管理 active relay state、workdir 校验、单轮 Codex turn 执行与退出清理
-- 已完成：`coding_handoff` 进入 active relay state，并立即发起首轮 Codex turn
+- 已完成：`coding_relay` 进入 active relay state，并立即发起首轮 Codex turn
 - 已完成：`pre_gateway_dispatch` 在 coding mode 下拦截普通消息并通过 `resume` 语义继续会话，返回 `action=skip`
 - 已完成：`/relay-back` 会清理 active state，并在有活跃进程时停止它
 - 已完成：补充单测覆盖 handoff、gateway 拦截和退出行为
@@ -208,7 +208,7 @@
 - 第一版不做 thread memory
 - 已完成：新增 `session_store.py`，统一管理 `run/sessions.json` 的容错读写
 - 已完成：按规则从 `prompt`、`agent_message`、`file_change`、`command_execution` 生成可读 `summary`
-- 已完成：在 `coding_handoff` 首轮和 coding mode 后续 turn 后更新 `created_at`、`last_active_at`、`last_files`
+- 已完成：在 `coding_relay` 首轮和 coding mode 后续 turn 后更新 `created_at`、`last_active_at`、`last_files`
 - 已完成：补充单测覆盖 summary 生成、持久化更新和 handoff / gateway 接线
 
 未完成内容：
@@ -241,7 +241,7 @@
 
 - 第一版优先稳定和可读，不追求复杂流式编辑体验
 - 已完成：新增 `output_formatter.py`，统一格式化 `agent_text`、命令摘要、文件变更摘要和常见错误反馈
-- 已完成：`coding_handoff` 与 `pre_gateway_dispatch` 改为返回格式化后的平台输出，同时保留原始错误数据
+- 已完成：`coding_relay` 与 `pre_gateway_dispatch` 改为返回格式化后的平台输出，同时保留原始错误数据
 - 已完成：补充单测覆盖格式化成功路径、常见错误映射和 handoff / gateway 接线
 
 下一步：
@@ -270,7 +270,7 @@
 - 只补与当前输出格式化主链路直接相关的测试
 - 不扩展到真实 gateway 集成测试
 - 已完成：新增 `tests/test_relay_runtime.py`，验证 runtime 会保留命令/文件事件上下文供格式化层使用
-- 已完成：更新 `DESIGN.md`，补充 `coding_handoff` 返回口径、错误覆盖范围和格式化降级策略
+- 已完成：更新 `DESIGN.md`，补充 `coding_relay` 返回口径、错误覆盖范围和格式化降级策略
 - 已完成：更新 `docs/ARCHITECTURE.md`，写实 `output_formatter.py` 职责和测试 seam
 
 下一步：
@@ -292,7 +292,7 @@
 完成标准：
 
 - 默认 handoff / relay turn 以可写工作区启动 Codex
-- `coding_handoff` 支持显式执行模式参数，至少包含 `yolo` 开关
+- `coding_relay` 支持显式执行模式参数，至少包含 `yolo` 开关
 - 单测覆盖命令构造和参数校验
 - 文档明确说明当前不桥接 Codex 自身的交互式 approval 事件到飞书
 
@@ -301,7 +301,7 @@
 - 第一版优先保证可靠 relay，不扩展成完整的人机协商代理
 - 若 Codex `exec --json` 未暴露稳定 approval 事件，则保留 `never` / `yolo` 两种无交互模式
 - 已完成：`agent_spawner.py` 默认改为 `workspace-write + -a never`，并支持显式 `yolo`
-- 已完成：`coding_handoff` 支持 `sandbox_mode` / `yolo` 参数校验与回显
+- 已完成：`coding_relay` 支持 `sandbox_mode` / `yolo` 参数校验与回显
 - 已完成：新增会话级 `/relay-mode [status|safe|readonly|yolo]` 控制，并使用 `/relay-back`
 - 已完成：移除 `/back` 兼容分支，避免与 Codex 自身 slash 空间混用
 - 已完成：coding mode 下除 relay 保留命令外，其余 slash 文本继续原样转给 Codex
@@ -346,13 +346,13 @@
 
 目标：
 
-- 修复 `coding_handoff` 在 Hermes tool 调用路径里拿不到 `chat_id` 的根因
+- 修复 `coding_relay` 在 Hermes tool 调用路径里拿不到 `chat_id` 的根因
 - 将 active relay state 从 `chat_id` 绑定修正为 Hermes `session_id`
 - 保证 `/reset` 或新会话后不会继续误命中旧 coding mode
 
 完成标准：
 
-- `coding_handoff` 可用 `task_id/session_id` 成功进入 coding mode
+- `coding_relay` 可用 `task_id/session_id` 成功进入 coding mode
 - gateway hook 按当前 `session_id` 判断是否命中 relay
 - 同一 `session_key` 下旧 `session_id` 的内存态会被清理
 - 单测覆盖新绑定键和旧会话清理逻辑
@@ -360,13 +360,50 @@
 实现备注：
 
 - 已完成：`relay_context.py` 新增 `session_id/session_key` 提取逻辑，并兼容 Hermes 运行环境变量
-- 已完成：`coding_handoff` 改为以 `task_id/session_id` 建立 relay，不再依赖 `chat_id`
+- 已完成：`coding_relay` 改为以 `task_id/session_id` 建立 relay，不再依赖 `chat_id`
 - 已完成：`pre_gateway_dispatch` 通过 `session_store` 解析当前 `session_id/session_key`，并在会话轮换时清理旧 active relay state
 - 已完成：补充单测覆盖 `session_id` 绑定和同 `session_key` 下旧状态清理
 
 下一步：
 
 - 继续飞书端到端测试，验证 Hermes 真实 tool 调用路径现在可以成功进入 coding mode，并确认 `/reset` 后旧 relay 不再命中
+
+---
+
+## T012 编码委托指令与 workdir 初始化
+
+状态：done
+
+目标：
+
+- 让 Hermes 自动将编码类任务委托给 `coding_relay`，而不是使用内置的 `write_file` / `run_command`
+- 修复 Codex CLI 在无 git 仓库或不存在目录下启动失败的问题
+
+完成标准：
+
+- Hermes 遇到文件操作、代码编写、命令执行类任务时自动调用 `coding_relay`
+- `coding_relay` 能在目录不存在时自动创建并 `git init`
+- Codex CLI 命令默认带 `--skip-git-repo-check`
+- 有独立单测覆盖命令构造、workdir 初始化
+
+实现备注：
+
+- 已完成：新增 `skill/SKILL.md`，通过 `skills.external_dirs` 注册到 Hermes system prompt 索引
+- 已完成：强化 `TOOL_SCHEMA` description，明确声明编码任务必须走 `coding_relay`
+- 已完成：`agent_spawner.py` 的 `build_codex_command` 默认加 `--skip-git-repo-check`
+- 已完成：`relay_runtime.py` 新增 `ensure_workdir_ready`，自动 mkdir + git init
+- 已完成：`handoff_tool.py` 在 `validate_workdir` 后调用 `ensure_workdir_ready`
+- 已完成：更新已有测试适配新命令格式，新增 `ensure_workdir_ready` 单测
+- 已完成：`~/.hermes/config.yaml` 的 `skills.external_dirs` 加入 skill 路径
+
+未完成内容：
+
+- 飞书端到端验证：确认 Hermes 收到编码请求时自动调用 `coding_relay` 而非内置工具
+- 需要观察 Hermes 是否会因为 error 信息过于具体而自行修复（绕过 relay）
+
+下一步：
+
+- 重启 gateway 并进行飞书端到端测试
 
 ---
 
@@ -453,7 +490,7 @@
 
 完成标准：
 
-- `coding_handoff` 可显式选择 `opencode`
+- `coding_relay` 可显式选择 `opencode`
 - `pre_gateway_dispatch` 能按 active relay state 转发到对应后端
 - `opencode` 的启动、恢复、事件解析和错误反馈均有独立测试
 - `DESIGN.md`、`docs/DECISIONS.md`、`docs/TASKS.md` 同步写实差异和约束
@@ -466,3 +503,73 @@
 下一步：
 
 - 等 T011A 和 T011B 完成后，再做 T011C
+
+---
+
+## T013 端到端联调修复
+
+状态：done
+
+目标：
+
+- 修复飞书端到端测试中发现的三个问题
+- 让 coding-relay 真正可用
+
+完成标准：
+
+- Codex 以正确的 workdir（配置根下的项目子目录，不是根本身）启动
+- hook 拦截后续消息后，Codex 的输出按事件顺序完整、可读地发送回用户
+- 命令执行细节以简洁进度消息外显，不再只输出最终结论
+
+实现备注：
+
+已完成：
+- 修复 hook import bug（相对导入）
+- workdir 根改为插件级配置 `plugins.coding-relay.workdir_root`
+- `validate_workdir` 仍拒绝根本身，只允许具体子目录
+- tool schema description 按配置动态生成
+- hook 改为按事件顺序流式发送，turn 结束补一条完成消息
+- `output_formatter` 恢复命令开始/完成消息，并保持事件顺序
+- `skill/SKILL.md` 同步更新 workdir 配置根和输出约束
+- SKILL.md 新增 handoff 前后回复规范
+- 文档补充 `codex exec` 不支持斜杠命令的已知限制
+
+待修复（P1）：
+- 无
+
+已知限制：
+- `codex exec` 不支持斜杠命令（/status 等），已文档化
+
+详细分析见 `docs/E2E-TEST-ANALYSIS-2026-05-11.md`
+
+下一步：
+
+- 跑完整测试套件确认无回归
+
+---
+
+## T014 tool 命名统一为 `coding_relay`
+
+状态：done
+
+目标：
+
+- 将 Hermes 对外暴露的 tool 名从 `coding_handoff` 统一为 `coding_relay`
+- 同步更新 skill、插件注册、文档和测试，消除命名歧义
+
+完成标准：
+
+- `register(ctx)` 注册的 tool 名为 `coding_relay`
+- skill 和文档统一指向 `coding_relay`
+- 相关测试全部通过
+
+实现备注：
+
+- 已完成：`plugin.yaml`、`register(ctx)` 和 tool schema 统一改为 `coding_relay`
+- 已完成：`skill/SKILL.md`、`README.md`、`DESIGN.md`、`docs/ARCHITECTURE.md`、`docs/DECISIONS.md`、`docs/TASKS.md` 同步改名
+- 已完成：保留 `handoff_tool.py` 中的 `coding_handoff = coding_relay` 兼容别名，避免直接导入旧符号的代码立即断裂
+- 已完成：更新相关单测并通过完整测试套件
+
+下一步：
+
+- 做一次飞书端到端验证，确认 Hermes 在真实对话里优先使用 `coding_relay`

@@ -7,8 +7,9 @@ import yaml
 
 import __init__ as plugin
 import session_store
+from relay_config import build_tool_description, build_workdir_description, get_workdir_root
 from gateway_hook import pre_gateway_dispatch
-from handoff_tool import coding_handoff
+from handoff_tool import coding_relay
 from relay_runtime import ActiveRelayState, clear_active_relays, get_active_relay
 from slash_commands import handle_relay_back_command, handle_relay_mode_command
 
@@ -37,12 +38,21 @@ class FakeContext:
 
 
 class FakeRunnerResult:
-    def __init__(self, codex_thread_id="thread-123", agent_texts=None, errors=None, command_runs=None, file_changes=None):
+    def __init__(
+        self,
+        codex_thread_id="thread-123",
+        agent_texts=None,
+        errors=None,
+        command_runs=None,
+        file_changes=None,
+        events=None,
+    ):
         self.codex_thread_id = codex_thread_id
         self.agent_texts = agent_texts or []
         self.errors = errors or []
         self.command_runs = command_runs or []
         self.file_changes = file_changes or []
+        self.events = events or []
 
 
 class FakeSessionEntry:
@@ -83,7 +93,7 @@ class PluginRegistrationTests(unittest.TestCase):
     def test_plugin_manifest_contains_expected_capabilities(self):
         manifest = yaml.safe_load(Path("plugin.yaml").read_text(encoding="utf-8"))
         self.assertEqual(manifest["name"], "coding-relay")
-        self.assertIn("coding_handoff", manifest["provides_tools"])
+        self.assertIn("coding_relay", manifest["provides_tools"])
         self.assertIn("pre_gateway_dispatch", manifest["provides_hooks"])
 
     def test_register_adds_tool_hook_and_command(self):
@@ -91,8 +101,10 @@ class PluginRegistrationTests(unittest.TestCase):
         plugin.register(ctx)
 
         self.assertEqual(len(ctx.tools), 1)
-        self.assertEqual(ctx.tools[0]["name"], "coding_handoff")
+        self.assertEqual(ctx.tools[0]["name"], "coding_relay")
         self.assertEqual(ctx.tools[0]["toolset"], "plugin_coding_relay")
+        self.assertIn(get_workdir_root(), ctx.tools[0]["description"])
+        self.assertIn(get_workdir_root(), ctx.tools[0]["schema"]["parameters"]["properties"]["workdir"]["description"])
 
         self.assertEqual(ctx.hooks, [("pre_gateway_dispatch", pre_gateway_dispatch)])
 
@@ -102,26 +114,26 @@ class PluginRegistrationTests(unittest.TestCase):
         self.assertEqual(ctx.commands[1]["name"], "relay-mode")
         self.assertIs(ctx.commands[1]["handler"], handle_relay_mode_command)
 
-    def test_coding_handoff_rejects_non_codex_agent(self):
-        result = json.loads(coding_handoff({"agent": "claude", "prompt": "x", "workdir": "/tmp"}, task_id="sess-1"))
+    def test_coding_relay_rejects_non_codex_agent(self):
+        result = json.loads(coding_relay({"agent": "claude", "prompt": "x", "workdir": "/tmp"}, task_id="sess-1"))
         self.assertEqual(result["status"], "rejected")
         self.assertEqual(result["reason"], "unsupported_agent")
 
-    def test_coding_handoff_requires_session_id(self):
-        result = json.loads(coding_handoff({"agent": "codex", "prompt": "x", "workdir": "/tmp"}))
+    def test_coding_relay_requires_session_id(self):
+        result = json.loads(coding_relay({"agent": "codex", "prompt": "x", "workdir": "/tmp"}))
         self.assertEqual(result["status"], "rejected")
         self.assertEqual(result["reason"], "invalid_session_id")
 
-    def test_coding_handoff_rejects_workdir_outside_allowed_root(self):
+    def test_coding_relay_rejects_workdir_outside_allowed_root(self):
         result = json.loads(
-            coding_handoff({"agent": "codex", "prompt": "x", "workdir": "/tmp"}, task_id="sess-1")
+            coding_relay({"agent": "codex", "prompt": "x", "workdir": "/tmp"}, task_id="sess-1")
         )
         self.assertEqual(result["status"], "rejected")
         self.assertEqual(result["reason"], "invalid_workdir")
 
-    def test_coding_handoff_rejects_invalid_execution_mode(self):
+    def test_coding_relay_rejects_invalid_execution_mode(self):
         result = json.loads(
-            coding_handoff(
+            coding_relay(
                 {"agent": "codex", "prompt": "x", "workdir": "/home/dontstarve/projects/coding-relay", "yolo": "yes"},
                 task_id="sess-1",
             )
@@ -129,20 +141,35 @@ class PluginRegistrationTests(unittest.TestCase):
         self.assertEqual(result["status"], "rejected")
         self.assertEqual(result["reason"], "invalid_execution_mode")
 
-    def test_coding_handoff_enters_coding_mode_and_runs_initial_turn(self):
+    def test_coding_relay_enters_coding_mode_and_runs_initial_turn(self):
         import handoff_tool
 
         original_runner = handoff_tool.run_codex_turn
         handoff_tool.run_codex_turn = lambda state, prompt, message_id=None: FakeRunnerResult(
             codex_thread_id="thread-123",
             agent_texts=["ready"],
-            command_runs=[{"command": "pytest -q", "exit_code": 0, "status": "completed"}],
+            events=[
+                {"kind": "agent_text", "payload": {"text": "ready"}},
+                {"kind": "command_started", "payload": {"command": "pytest -q"}},
+                {
+                    "kind": "command_finished",
+                    "payload": {"command": "pytest -q", "exit_code": 0, "output": ""},
+                },
+                {
+                    "kind": "file_change",
+                    "payload": {"phase": "completed", "path": "relay_runtime.py", "changes": [{"path": "relay_runtime.py"}]},
+                },
+            ],
+            command_runs=[
+                {"event_kind": "command_started", "command": "pytest -q", "status": "in_progress"},
+                {"event_kind": "command_finished", "command": "pytest -q", "exit_code": 0, "status": "completed"},
+            ],
             file_changes=[{"path": "relay_runtime.py", "changes": [{"path": "relay_runtime.py"}]}],
         )
         self.addCleanup(setattr, handoff_tool, "run_codex_turn", original_runner)
 
         result = json.loads(
-            coding_handoff(
+            coding_relay(
                 {"agent": "codex", "prompt": "x", "workdir": "/home/dontstarve/projects/coding-relay"},
                 task_id="sess-1",
                 message_id="msg-1",
@@ -156,7 +183,7 @@ class PluginRegistrationTests(unittest.TestCase):
         self.assertFalse(result["yolo"])
         self.assertEqual(
             result["initial_messages"],
-            ["ready", "命令完成：pytest -q (exit 0)", "文件变更：relay_runtime.py"],
+            ["ready", "命令开始：pytest -q", "命令完成：pytest -q (exit 0)", "文件变更：relay_runtime.py"],
         )
         self.assertEqual(
             get_active_relay("sess-1"),
@@ -168,6 +195,7 @@ class PluginRegistrationTests(unittest.TestCase):
                 workdir="/home/dontstarve/projects/coding-relay",
                 current_process=None,
                 current_message_id=None,
+                turn_in_flight=False,
             ),
         )
 
@@ -202,14 +230,12 @@ class PluginRegistrationTests(unittest.TestCase):
         result = pre_gateway_dispatch(event=event, session_store=FakeSessionStore(FakeSessionEntry("sess-1", "key-1")))
 
         self.assertEqual(result["action"], "skip")
-        self.assertEqual(result["relay"]["messages"], ["reply:continue", "文件变更：gateway_hook.py"])
-        self.assertEqual(result["relay"]["codex_thread_id"], "thread-123")
 
         store = session_store.load_session_store()
         self.assertEqual(store["sessions"][0]["codex_thread_id"], "thread-123")
         self.assertIn("最近结果：reply:continue", store["sessions"][0]["summary"])
 
-    def test_coding_handoff_returns_formatted_spawn_failure(self):
+    def test_coding_relay_returns_formatted_spawn_failure(self):
         import handoff_tool
 
         original_runner = handoff_tool.run_codex_turn
@@ -225,7 +251,7 @@ class PluginRegistrationTests(unittest.TestCase):
         self.addCleanup(setattr, handoff_tool, "run_codex_turn", original_runner)
 
         result = json.loads(
-            coding_handoff(
+            coding_relay(
                 {"agent": "codex", "prompt": "x", "workdir": "/home/dontstarve/projects/coding-relay"},
                 task_id="sess-1",
             )
@@ -246,7 +272,7 @@ class PluginRegistrationTests(unittest.TestCase):
         event.text = "/relay-back"
         result = pre_gateway_dispatch(event=event, session_store=FakeSessionStore(FakeSessionEntry("sess-1", "key-1")))
 
-        self.assertIsNone(result)
+        self.assertEqual(result, {"action": "skip"})
         self.assertIsNone(get_active_relay("sess-1"))
 
     def test_gateway_hook_treats_back_as_agent_text(self):
@@ -268,7 +294,6 @@ class PluginRegistrationTests(unittest.TestCase):
         result = pre_gateway_dispatch(event=event, session_store=FakeSessionStore(FakeSessionEntry("sess-1", "key-1")))
 
         self.assertEqual(result["action"], "skip")
-        self.assertEqual(result["relay"]["messages"], ["reply:/back"])
         self.assertIsNotNone(get_active_relay("sess-1"))
 
     def test_gateway_hook_preserves_agent_slash_commands(self):
@@ -290,7 +315,6 @@ class PluginRegistrationTests(unittest.TestCase):
         result = pre_gateway_dispatch(event=event, session_store=FakeSessionStore(FakeSessionEntry("sess-1", "key-1")))
 
         self.assertEqual(result["action"], "skip")
-        self.assertEqual(result["relay"]["messages"], ["reply:/compact"])
 
     def test_gateway_hook_relay_mode_changes_execution_mode(self):
         from relay_runtime import activate_relay
@@ -302,7 +326,6 @@ class PluginRegistrationTests(unittest.TestCase):
         result = pre_gateway_dispatch(event=event, session_store=FakeSessionStore(FakeSessionEntry("sess-1", "key-1")))
 
         self.assertEqual(result["action"], "skip")
-        self.assertEqual(result["relay"]["messages"], ["已切换 relay 模式：readonly（read-only）。"])
         self.assertEqual(get_active_relay("sess-1").sandbox_mode, "read-only")
 
     def test_relay_back_command_exits_coding_mode(self):
@@ -314,6 +337,11 @@ class PluginRegistrationTests(unittest.TestCase):
 
         self.assertIn("已退出", result)
         self.assertIsNone(get_active_relay("sess-1"))
+
+    def test_tool_description_reflects_configured_workdir_root(self):
+        config = {"plugins": {"coding-relay": {"workdir_root": "/tmp/custom-root"}}}
+        self.assertIn("/tmp/custom-root", build_workdir_description(config))
+        self.assertIn("/tmp/custom-root", build_tool_description(config))
 
 
 if __name__ == "__main__":

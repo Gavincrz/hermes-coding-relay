@@ -45,10 +45,8 @@ def build_codex_command(
         command.extend(["-a", "never", "-s", sandbox_mode])
 
     if codex_thread_id:
-        if yolo:
-            return command + ["exec", "resume", codex_thread_id, "--json", prompt]
-        return command + ["exec", "resume", codex_thread_id, "--json", prompt]
-    return command + ["exec", "--json", "-C", workdir, prompt]
+        return command + ["exec", "--skip-git-repo-check", "resume", codex_thread_id, "--json", prompt]
+    return command + ["exec", "--skip-git-repo-check", "--json", "-C", workdir, prompt]
 
 
 def start_codex_process(
