@@ -6,7 +6,7 @@
 
 第一版目标是稳定的单链路 relay：
 
-- Hermes LLM 通过 `coding_handoff` 进入 coding mode
+- Hermes LLM 通过 `coding_relay` 进入 coding mode
 - gateway hook 在 coding mode 下绕过 Hermes LLM
 - Codex CLI 负责实际编码工作
 - 插件只负责状态、转发、事件解析和输出格式化
@@ -58,7 +58,7 @@
   - 只负责 wiring，不放业务逻辑
 
 - `handoff_tool.py`
-  - `coding_handoff` tool handler
+  - `coding_relay` tool handler
   - 参数校验
   - 进入 coding mode 的入口协调
   - 用 Hermes `session_id` 建立当前 relay 绑定
@@ -135,7 +135,7 @@
 第一版优先覆盖这些 seam：
 
 - `register(ctx)` 是否正确注册 tool / hook / command
-- `coding_handoff` 参数校验
+- `coding_relay` 参数校验
 - gateway hook 的透传与后续拦截行为
 - relay 模式切换与保留命令边界
 - Codex 命令构造

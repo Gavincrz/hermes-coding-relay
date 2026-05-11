@@ -8,7 +8,7 @@
 
 - 只支持 `codex`
 - 进入 coding mode 后，普通消息完全绕过 Hermes LLM
-- 通过 `coding_handoff` tool 进入 coding mode
+- 通过 `coding_relay` tool 进入 coding mode
 - 通过 `pre_gateway_dispatch` hook 接管后续消息
 - 通过 `/relay-back` 退出 coding mode
 - 运行态数据统一写入仓库内的 `run/`
@@ -26,7 +26,7 @@
 阶段 1：正常对话（Hermes LLM 介入）
   用户发起 coding 需求
   Hermes 判断为 coding 任务
-  Hermes 调用 coding_handoff
+  Hermes 调用 coding_relay
 
 阶段 2：Coding Mode（Hermes LLM 不介入）
   plugin 启动或恢复 Codex
@@ -110,7 +110,7 @@ run/
 
 ## 5. Hermes Plugin API 使用
 
-### 5.1 Tool：`coding_handoff`
+### 5.1 Tool：`coding_relay`
 
 由 Hermes LLM 调用，用于进入 coding mode。
 
@@ -145,7 +145,7 @@ run/
 行为：
 
 1. 校验 `agent == "codex"`
-2. 校验 `workdir` 位于允许的项目根内
+2. 校验 `workdir` 位于允许的项目根内，且必须是具体项目子目录，不能是 `~/projects` 根本身
 3. 若传入 `codex_thread_id`，走 resume；否则新建会话
 4. 以当前 `session_id` 建立 `active relay state`
 5. 持久化更新 `run/sessions.json`
@@ -211,6 +211,7 @@ codex --dangerously-bypass-approvals-and-sandbox exec --json -C <workdir> "<prom
 - `-C <workdir>`：仅新建会话时指定工作目录
 - resume 时以 `codex_thread_id` 为唯一恢复标识
 - `yolo` 用于显式放弃 sandbox 和 approval 边界，只在用户明确要求时开启
+- `codex exec` 不支持斜杠命令，例如 `/status`
 
 ## 7. 事件解析分层
 
@@ -279,13 +280,12 @@ codex --dangerously-bypass-approvals-and-sandbox exec --json -C <workdir> "<prom
 建议策略：
 
 1. `agent_text`：完整输出
-2. `command_started`：简短提示，例如 `执行命令：pytest -q`
-3. `command_finished`：输出 exit code 和截断后的结果摘要
-4. `file_change`：输出去重后的文件名摘要，必要时截断为少量文件 + 总数
-5. `relay_error`：给用户明确错误，而不是静默失败；至少覆盖 CLI 未安装、spawn 失败、非零退出和 JSON 解析异常
-6. `output_formatter` 自身异常时回退到原始 `agent_text`，不阻断 Codex 主流程
+2. `command_started` / `command_finished`：以简洁进度消息外显，保留命令执行上下文但不追求完整日志转储
+3. `file_change`：输出去重后的文件名摘要，必要时截断为少量文件 + 总数
+4. `relay_error`：给用户明确错误，而不是静默失败；至少覆盖 CLI 未安装、spawn 失败、非零退出和 JSON 解析异常
+5. `output_formatter` 自身异常时回退到原始 `agent_text`，不阻断 Codex 主流程
 
-如果 gateway / 飞书消息编辑能力不稳定，允许第一版退化为“连续发新消息”，不强制实现单消息流式编辑。
+第一版允许按事件顺序流式发送；如果 gateway / 飞书消息编辑能力不稳定，允许退化为“连续发新消息”，但仍要求消息顺序与事件顺序一致。
 
 ### 9.1 Approval 与交互边界
 
@@ -351,16 +351,18 @@ codex --dangerously-bypass-approvals-and-sandbox exec --json -C <workdir> "<prom
 
 ## 11. workdir 约束
 
-第一版 `workdir` 只允许位于约定项目根下，例如：
+第一版 `workdir` 只允许位于配置化项目根下，例如：
 
-- `~/projects/*`
+- 默认 `~/projects/*`
+- 可通过插件配置 `plugins.coding-relay.workdir_root` 调整根目录
 
 理由：
 
 - 防止 Hermes 或 agent 被错误路由到任意路径
 - 缩小命令执行和文件修改边界
+- 配置根本身仍不作为合法 `workdir`
 
-不在允许范围内的路径，`coding_handoff` 直接拒绝。
+不在允许范围内的路径，`coding_relay` 直接拒绝。
 
 ## 12. 错误处理
 

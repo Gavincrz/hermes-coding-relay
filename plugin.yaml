@@ -3,7 +3,7 @@ version: 0.1.0
 description: "Relay coding tasks from Hermes to Codex CLI."
 author: "dontstarve"
 provides_tools:
-  - coding_handoff
+  - coding_relay
 provides_hooks:
   - pre_gateway_dispatch
 requires_env: []

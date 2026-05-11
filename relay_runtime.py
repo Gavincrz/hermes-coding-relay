@@ -14,14 +14,15 @@ try:
         start_codex_process,
     )
     from .event_adapter import adapt_stream_events
+    from .relay_config import get_workdir_root
     from .session_store import upsert_session_record
 except ImportError:  # pragma: no cover - direct import compatibility
     from agent_spawner import CodexSpawnError, DEFAULT_SANDBOX_MODE, VALID_SANDBOX_MODES, start_codex_process
     from event_adapter import adapt_stream_events
+    from relay_config import get_workdir_root
     from session_store import upsert_session_record
 
 
-ALLOWED_WORKDIR_ROOT = Path("~/projects").expanduser().resolve()
 RELAY_MODE_PRESETS = {
     "safe": {"sandbox_mode": DEFAULT_SANDBOX_MODE, "yolo": False},
     "readonly": {"sandbox_mode": "read-only", "yolo": False},
@@ -42,6 +43,7 @@ class ActiveRelayState:
     yolo: bool = False
     current_process: Any = None
     current_message_id: str | None = None
+    turn_in_flight: bool = False
 
 
 @dataclass(frozen=True)
@@ -49,6 +51,7 @@ class RelayTurnResult:
     """Result of one Codex turn execution."""
 
     codex_thread_id: str | None
+    events: list[dict[str, Any]] = field(default_factory=list)
     agent_texts: list[str] = field(default_factory=list)
     errors: list[dict] = field(default_factory=list)
     command_runs: list[dict[str, Any]] = field(default_factory=list)
@@ -61,11 +64,31 @@ _ACTIVE_RELAYS: dict[str, ActiveRelayState] = {}
 def validate_workdir(workdir: str) -> str:
     """Resolve and validate workdir against the allowed project root."""
     resolved = Path(workdir).expanduser().resolve()
+    allowed_root = Path(get_workdir_root())
     try:
-        resolved.relative_to(ALLOWED_WORKDIR_ROOT)
+        resolved.relative_to(allowed_root)
     except ValueError as exc:
-        raise ValueError(f"workdir must be inside {ALLOWED_WORKDIR_ROOT}.") from exc
+        raise ValueError(f"workdir must be inside {allowed_root}.") from exc
+    if resolved == allowed_root:
+        raise ValueError(f"workdir must be a subdirectory of {allowed_root}.")
     return str(resolved)
+
+
+def ensure_workdir_ready(workdir: str) -> None:
+    """Ensure the workdir exists and is a git repository."""
+    path = Path(workdir)
+    path.mkdir(parents=True, exist_ok=True)
+    git_dir = path / ".git"
+    if not git_dir.exists():
+        import subprocess
+
+        subprocess.run(
+            ["git", "init"],
+            cwd=str(path),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=True,
+        )
 
 
 def activate_relay(
@@ -162,6 +185,7 @@ def run_codex_turn(
     *,
     message_id: str | None = None,
     process_starter=start_codex_process,
+    event_sink: Any | None = None,
 ) -> RelayTurnResult:
     """Execute one Codex turn for the active chat state."""
     state.current_message_id = message_id
@@ -181,12 +205,25 @@ def run_codex_turn(
         )
 
     state.current_process = codex_process.process
+    events: list[dict[str, Any]] = []
     agent_texts: list[str] = []
     errors: list[dict] = []
     command_runs: list[dict[str, Any]] = []
     file_changes: list[dict[str, Any]] = []
     try:
         for event in adapt_stream_events(codex_process.iter_events()):
+            event_record = {"kind": event.kind, "payload": dict(event.payload)}
+            events.append(event_record)
+            if callable(event_sink):
+                try:
+                    event_sink(event_record)
+                except Exception as exc:
+                    errors.append(
+                        {
+                            "reason": "relay_output_failed",
+                            "message": str(exc),
+                        }
+                    )
             if event.kind == "session_init":
                 state.codex_thread_id = event.payload.get("codex_thread_id") or state.codex_thread_id
             elif event.kind == "agent_text":
@@ -208,6 +245,7 @@ def run_codex_turn(
 
     return RelayTurnResult(
         codex_thread_id=state.codex_thread_id,
+        events=events,
         agent_texts=agent_texts,
         errors=errors,
         command_runs=command_runs,

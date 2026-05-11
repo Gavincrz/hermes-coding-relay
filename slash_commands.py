@@ -15,7 +15,7 @@ def handle_relay_back_command(_raw_args, **kwargs):
     session_id = extract_session_id(kwargs)
     if exit_coding_mode_for_session(session_id):
         return "已退出 coding mode，Hermes 重新接管。"
-    return "当前 session 不在 coding mode。可先通过 coding_handoff 进入 relay 会话。"
+    return "当前 session 不在 coding mode。可先通过 coding_relay 进入 relay 会话。"
 
 
 def handle_relay_mode_command(raw_args, **kwargs):
@@ -26,7 +26,7 @@ def handle_relay_mode_command(raw_args, **kwargs):
 
     state = get_active_relay(session_id)
     if state is None:
-        return "当前 session 不在 coding mode。可先通过 coding_handoff 进入 relay 会话。"
+        return "当前 session 不在 coding mode。可先通过 coding_relay 进入 relay 会话。"
 
     requested = (raw_args or "").strip().lower()
     if not requested or requested == "status":
