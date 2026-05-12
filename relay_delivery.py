@@ -35,10 +35,10 @@ def has_delivery_context(kwargs: dict[str, Any], source: Any | None = None) -> b
     resolved_source = source if source is not None else resolve_source(kwargs)
     if not gateway or resolved_source is None:
         return False
-    platform = getattr(resolved_source, "platform", None)
-    if not isinstance(platform, str) or not platform:
+    platform_key = _platform_key(getattr(resolved_source, "platform", None))
+    if platform_key is None:
         return False
-    return gateway.adapters.get(platform) is not None
+    return gateway.adapters.get(platform_key) is not None
 
 
 def send_chat_message(kwargs: dict[str, Any], source: Any, text: str) -> None:
@@ -48,10 +48,12 @@ def send_chat_message(kwargs: dict[str, Any], source: Any, text: str) -> None:
         _log.warning("cannot send relay response: missing gateway or source")
         return
 
-    platform = getattr(source, "platform", None)
-    adapter = gateway.adapters.get(platform) if platform else None
+    raw_platform = getattr(source, "platform", None)
+    platform_key = _platform_key(raw_platform)
+    platform_label = _platform_label(raw_platform)
+    adapter = gateway.adapters.get(platform_key) if platform_key is not None else None
     if not adapter:
-        _log.warning("cannot send relay response: no adapter for platform %s", platform)
+        _log.warning("cannot send relay response: no adapter for platform %s", platform_label)
         return
 
     try:
@@ -70,10 +72,12 @@ def send_chat_message_sync(kwargs: dict[str, Any], source: Any, text: str) -> No
         _log.warning("cannot send relay response: missing gateway or source")
         return
 
-    platform = getattr(source, "platform", None)
-    adapter = gateway.adapters.get(platform) if platform else None
+    raw_platform = getattr(source, "platform", None)
+    platform_key = _platform_key(raw_platform)
+    platform_label = _platform_label(raw_platform)
+    adapter = gateway.adapters.get(platform_key) if platform_key is not None else None
     if not adapter:
-        _log.warning("cannot send relay response: no adapter for platform %s", platform)
+        _log.warning("cannot send relay response: no adapter for platform %s", platform_label)
         return
 
     try:
@@ -148,3 +152,25 @@ def _is_active_state(kwargs: dict[str, Any], expected_state: Any) -> bool:
     if session_id is None:
         return True
     return get_active_relay(session_id) is expected_state
+
+
+def _platform_key(value: Any) -> Any | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        return normalized or None
+    return value
+
+
+def _platform_label(value: Any) -> str | None:
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        return normalized or None
+
+    enum_value = getattr(value, "value", None)
+    if isinstance(enum_value, str):
+        normalized = enum_value.strip().lower()
+        return normalized or None
+
+    return None

@@ -830,6 +830,35 @@
 
 ---
 
+## T024 清理飞书联调临时诊断日志
+
+状态：done
+
+目标：
+
+- 清理仅用于定位问题的 relay `info` 级诊断日志
+- 保留功能修复和真实发送失败的 `warning`
+
+完成标准：
+
+- `gateway_hook.py` 不再保留联调期的 active/fallback/busy/streaming 诊断日志
+- `handoff_tool.py` 不再保留首轮 handoff 的上下文诊断日志
+- `relay_delivery.py` 不再保留 `stream_turn_sync` 的开始/结束/fallback 统计日志
+- adapter 查找修复和发送失败告警保持不变
+
+实现备注：
+
+- 已完成：移除 `handoff_tool.py` 中仅用于联调的首轮 handoff 诊断日志
+- 已完成：移除 `gateway_hook.py` 中仅用于联调的 `coding-relay.hook` 诊断日志
+- 已完成：移除 `relay_delivery.py` 中仅用于联调的 `stream_turn_sync` 诊断日志
+- 已完成：保留 `cannot send relay response: ...` 这类真实运行失败告警
+
+下一步：
+
+- 继续飞书端到端验证，确认日志降噪后行为不回退
+
+---
+
 ## T023 历史会话查询工具与 resume_token 收口
 
 状态：done
