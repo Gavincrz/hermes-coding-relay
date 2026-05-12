@@ -9,6 +9,7 @@ metadata:
     conditions:
       requires_tools:
         - coding_relay
+        - list_relay_sessions
 ---
 
 # 编码任务委托规则
@@ -87,15 +88,20 @@ metadata:
 | `agent` | 固定填 `"codex"` |
 | `prompt` | 组装好的任务描述，包含完整的上下文和意图 |
 | `workdir` | 工作目录绝对路径，必须是配置根 `plugins.coding-relay.workdir_root` 下的具体项目子目录，不能直接传配置根本身 |
-| `codex_thread_id` | 可选，仅当用户明确要求恢复之前的 Codex 会话时才传入 |
+| `resume_token` | 可选，仅当用户明确要求恢复之前的 relay 会话时才传入 |
 
 ### resume 使用约束
 
-- `codex_thread_id` 是显式恢复开关，不是默认行为
-- 只有当用户明确表达“继续上次”“恢复上次”“resume 上次会话”这类意图时，才允许传 `codex_thread_id`
+- `resume_token` 是显式恢复开关，不是默认行为
+- 只有当用户明确表达“继续上次”“恢复上次”“resume 上次会话”这类意图时，才允许传 `resume_token`
 - 用户没有明确要求 resume 时，默认新建 session
 - 不允许仅凭 `workdir`、`summary`、最近记录或“看起来像在继续”就隐式选择历史 session
 - 当前 coding mode 已经激活时，后续普通消息自然继续当前线程；这不属于重新 handoff 的 resume 决策
+- 显式 resume 时，**必须先调用** `list_relay_sessions` 查询当前 `workdir` 的历史候选；不要自己读取或搜索底层会话文件
+- **禁止**自行搜索 `~/.codex`、sqlite、session_search、外部缓存或其它非 coding-relay 会话源来猜测历史会话
+- 如果 `list_relay_sessions` 没有返回足够信息确定要恢复的会话，应直接告诉用户无法安全恢复，并让用户明确提供更多信息或改为新建 session
+- 如果有多条候选记录，必须先征求用户选择；不要擅自挑一条
+- 如果只有一条候选且用户明确要求“恢复最近一次”，可以直接使用该条返回的 `resume_token`
 
 ### prompt 组装原则
 
@@ -132,13 +138,20 @@ metadata:
 
 **用户说**：恢复上次在这个项目里的 Codex 会话，告诉我上次做到哪了
 
-**你应该调用**：
+**你应该先调用** `list_relay_sessions`：
+```json
+{
+  "workdir": "/home/dontstarve/projects/my-app"
+}
+```
+
+**如果用户确认了某一条候选，再调用** `coding_relay`：
 ```json
 {
   "agent": "codex",
   "prompt": "查看项目当前状态，列出最近修改的文件和未完成的工作。",
   "workdir": "/home/dontstarve/projects/my-app",
-  "codex_thread_id": "<上次返回的 thread_id>"
+  "resume_token": "<list_relay_sessions 返回的 resume_token>"
 }
 ```
 
@@ -168,9 +181,11 @@ metadata:
 ### 默认新建 vs 显式恢复
 
 - 重新调用 `coding_relay` 时，默认行为是新建 session
-- 只有用户明确要求恢复历史会话时，才允许传 `codex_thread_id`
+- 只有用户明确要求恢复历史会话时，才允许传 `resume_token`
 - 如果用户只是说“继续做这个项目”但没有明确要求恢复上次会话，应优先新建 session，或先追问是否需要恢复历史线程
-- 不要把 `run/sessions.json` 当成默认自动匹配来源；它不是让 Hermes 隐式挑选历史线程的依据
+- 不要把历史记录当成默认自动匹配来源；它不是让 Hermes 隐式挑选历史线程的依据
+- 如果用户明确要求 resume，应先调用 `list_relay_sessions` 获取候选；不要自己去 Codex 本地状态目录、数据库、仓库文件树或其它历史源检索会话 id
+- 除非用户明确要求“恢复最近一次”且只有一条明确候选，否则先把候选摘要转达给用户，由用户确认后再调用 `coding_relay`
 
 ## 调用 coding_relay 时的回复规范
 
@@ -179,6 +194,7 @@ metadata:
 1. 说明即将把任务转交给 Codex
 2. 展示你要传给 `coding_relay` 的 `prompt` 内容（原文展示，让用户确认意图是否准确）
 3. 展示使用的 `workdir`
+4. 如果这是显式 resume，说明你使用的是 `list_relay_sessions` 返回并经用户确认的历史 session，而不是外部 Codex 会话搜索结果
 
 调用 `coding_relay` **之后**，根据返回结果回复用户：
 

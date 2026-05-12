@@ -9,6 +9,7 @@
 - 只支持 `codex`
 - 进入 coding mode 后，普通消息完全绕过 Hermes LLM
 - 通过 `coding_relay` tool 进入 coding mode
+- 通过 `list_relay_sessions` tool 查询历史 relay 会话候选
 - 通过 `pre_gateway_dispatch` hook 接管后续消息
 - 通过 `/relay-back` 退出 coding mode
 - 运行态数据统一写入仓库内的 `run/`
@@ -42,11 +43,12 @@
 
 ## 3. 术语与状态模型
 
-第一版显式区分三类标识：
+第一版显式区分四类标识：
 
 - `session_id`：Hermes 当前会话标识；用于判断“当前这一轮 Hermes 会话”是否处于 coding mode
 - `session_key`：Hermes 对同一 chat/source 的稳定归并键；用于识别 reset 前后的同源会话并清理旧内存态
-- `codex_thread_id`：Codex `thread.started.thread_id` 返回的真实恢复标识；也是持久化主键
+- `resume_token`：对外暴露的 provider-neutral 恢复标识；它是 provider 原生恢复标识的透传值
+- `codex_thread_id`：当前 Codex provider 的真实恢复标识；也是当前实现里 `resume_token` 的实际值
 - `active relay state`：插件当前内存态，描述某个 `session_id` 当前绑定的 Codex 会话和进程
 
 ### 3.1 Active Relay State
@@ -121,7 +123,7 @@ run/
 | `agent` | string | 是 | 第一版仅允许 `codex` |
 | `prompt` | string | 是 | Hermes 组装好的初始 prompt |
 | `workdir` | string | 是 | 工作目录 |
-| `codex_thread_id` | string | 否 | 如需恢复历史 Codex 会话则传入 |
+| `resume_token` | string | 否 | 如需恢复历史 relay 会话则传入 provider 原生恢复标识 |
 | `sandbox_mode` | string | 否 | `read-only` / `workspace-write` / `danger-full-access` |
 | `yolo` | boolean | 否 | 是否使用 Codex 的危险全开模式 |
 
@@ -131,6 +133,7 @@ run/
 {
   "status": "handed_off",
   "agent": "codex",
+  "resume_token": "019e0769-f520-7aa2-a219-da891e701f8d",
   "codex_thread_id": "019e0769-f520-7aa2-a219-da891e701f8d",
   "sandbox_mode": "workspace-write",
   "yolo": false,
@@ -143,10 +146,50 @@ run/
 
 1. 校验 `agent == "codex"`
 2. 校验 `workdir` 位于允许的项目根内，且必须是具体项目子目录，不能是 `~/projects` 根本身
-3. 若传入 `codex_thread_id`，走 resume；否则新建会话
+3. 若传入 `resume_token`，走 resume；否则新建会话
 4. 以当前 `session_id` 建立 `active relay state`
 5. 若具备 gateway/source 上下文，首轮 Codex 输出由 relay 按事件顺序直接发送给用户；Hermes 不复述 `initial_messages`
 6. 持久化更新 `run/sessions.json`
+
+### 5.1A Tool：`list_relay_sessions`
+
+由 Hermes 在显式 resume 场景下调用，用于查询某个 `workdir` 的历史 relay 会话候选。这个工具**不进入** coding mode。
+
+参数：
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `workdir` | string | 是 | 具体项目工作目录 |
+| `provider` | string | 否 | 第一版仅允许 `codex` |
+| `limit` | integer | 否 | 返回最近候选条数，默认 5 |
+
+返回：
+
+```json
+{
+  "status": "ok",
+  "provider": "codex",
+  "workdir": "/home/dontstarve/projects/my-app",
+  "count": 1,
+  "sessions": [
+    {
+      "provider": "codex",
+      "resume_token": "019e0769-f520-7aa2-a219-da891e701f8d",
+      "workdir": "/home/dontstarve/projects/my-app",
+      "last_active_at": "2026-05-12T10:00:00+08:00",
+      "summary": "目标：补测试；最近结果：已修复输出；最近文件：tests/test_x.py",
+      "last_files": ["tests/test_x.py"]
+    }
+  ]
+}
+```
+
+行为：
+
+1. 校验 `workdir` 合法
+2. 只查询 relay 自己维护的 `run/sessions.json`
+3. 只返回该 `workdir` 的候选，不自动进入 coding mode
+4. 由 Hermes 将候选转达给用户，用户确认后再调用 `coding_relay`
 
 ### 5.2 Slash Command：`/relay-back`
 
@@ -207,7 +250,7 @@ codex --dangerously-bypass-approvals-and-sandbox exec --json -C <workdir> "<prom
 - 默认 `workspace-write`：保证工作区内真实编码可写，不再落入只读会话
 - `-a never`：gateway 模式下不等待交互式 approval
 - `-C <workdir>`：仅新建会话时指定工作目录
-- resume 时以 `codex_thread_id` 为唯一恢复标识
+- resume 时以 `resume_token` 作为对外恢复标识；当前 Codex provider 下它等于 `codex_thread_id`
 - `yolo` 用于显式放弃 sandbox 和 approval 边界，只在用户明确要求时开启
 - `codex exec` 不支持斜杠命令，例如 `/status`
 
@@ -304,7 +347,7 @@ codex --dangerously-bypass-approvals-and-sandbox exec --json -C <workdir> "<prom
 
 ### 9.2 显式 resume 的恢复提示
 
-当 Hermes 在 handoff 时显式传入 `codex_thread_id`：
+当 Hermes 在 handoff 时显式传入 `resume_token`：
 
 1. relay 应先向用户展示一条“已恢复历史会话”提示
 2. 提示内容来自 `run/sessions.json` 中该线程的结构化记录，而不是最后几条原始消息
