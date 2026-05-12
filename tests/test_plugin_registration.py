@@ -1,7 +1,9 @@
 import json
 import tempfile
+import time
 import unittest
 from datetime import datetime, timezone
+from enum import Enum
 from pathlib import Path
 
 import yaml
@@ -11,7 +13,8 @@ import session_store
 from relay_config import build_tool_description, build_workdir_description, get_command_visibility, get_workdir_root
 from gateway_hook import pre_gateway_dispatch
 from handoff_tool import coding_relay
-from relay_runtime import ActiveRelayState, clear_active_relays, get_active_relay
+from session_lookup_tool import list_relay_sessions
+from relay_runtime import clear_active_relays, get_active_relay
 from slash_commands import handle_relay_back_command, handle_relay_mode_command
 
 
@@ -83,6 +86,10 @@ class SimpleSource:
         self.platform = platform
 
 
+class FakePlatform(Enum):
+    FEISHU = "feishu"
+
+
 class FakeAdapter:
     def __init__(self):
         self.messages = []
@@ -92,8 +99,8 @@ class FakeAdapter:
 
 
 class FakeGateway:
-    def __init__(self, adapter):
-        self.adapters = {"feishu": adapter}
+    def __init__(self, adapter, platform_key="feishu"):
+        self.adapters = {platform_key: adapter}
 
 
 class PluginRegistrationTests(unittest.TestCase):
@@ -115,11 +122,14 @@ class PluginRegistrationTests(unittest.TestCase):
         ctx = FakeContext()
         plugin.register(ctx)
 
-        self.assertEqual(len(ctx.tools), 1)
+        self.assertEqual(len(ctx.tools), 2)
         self.assertEqual(ctx.tools[0]["name"], "coding_relay")
         self.assertEqual(ctx.tools[0]["toolset"], "plugin_coding_relay")
         self.assertIn(get_workdir_root(), ctx.tools[0]["description"])
         self.assertIn(get_workdir_root(), ctx.tools[0]["schema"]["parameters"]["properties"]["workdir"]["description"])
+        self.assertEqual(ctx.tools[1]["name"], "list_relay_sessions")
+        self.assertEqual(ctx.tools[1]["toolset"], "plugin_coding_relay")
+        self.assertIn(get_workdir_root(), ctx.tools[1]["schema"]["parameters"]["properties"]["workdir"]["description"])
 
         self.assertEqual(ctx.hooks, [("pre_gateway_dispatch", pre_gateway_dispatch)])
 
@@ -193,6 +203,7 @@ class PluginRegistrationTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "handed_off")
         self.assertEqual(result["agent"], "codex")
+        self.assertEqual(result["resume_token"], "thread-123")
         self.assertEqual(result["codex_thread_id"], "thread-123")
         self.assertEqual(result["sandbox_mode"], "workspace-write")
         self.assertFalse(result["yolo"])
@@ -200,24 +211,56 @@ class PluginRegistrationTests(unittest.TestCase):
             result["initial_messages"],
             ["ready", "**已修改文件**\n- `relay_runtime.py`"],
         )
-        self.assertEqual(
-            get_active_relay("sess-1"),
-            ActiveRelayState(
-                session_id="sess-1",
-                session_key=None,
-                agent="codex",
-                codex_thread_id="thread-123",
-                workdir="/home/dontstarve/projects/coding-relay",
-                current_process=None,
-                current_message_id=None,
-                turn_in_flight=False,
-            ),
-        )
+        state = get_active_relay("sess-1")
+        self.assertIsNotNone(state)
+        self.assertEqual(state.session_id, "sess-1")
+        self.assertEqual(state.agent, "codex")
+        self.assertEqual(state.codex_thread_id, "thread-123")
+        self.assertEqual(state.workdir, "/home/dontstarve/projects/coding-relay")
+        self.assertIsNone(state.current_process)
+        self.assertIsNone(state.current_message_id)
+        self.assertFalse(state.turn_in_flight)
 
         store = session_store.load_session_store()
         self.assertEqual(len(store["sessions"]), 1)
+        self.assertEqual(store["sessions"][0]["resume_token"], "thread-123")
         self.assertEqual(store["sessions"][0]["codex_thread_id"], "thread-123")
         self.assertIn("最近检查：pytest -q (exit 0)", store["sessions"][0]["summary"])
+
+    def test_list_relay_sessions_returns_candidates_without_entering_coding_mode(self):
+        session_store.upsert_session_record(
+            codex_thread_id="thread-older",
+            agent="codex",
+            workdir="/home/dontstarve/projects/coding-relay",
+            prompt="修复旧问题",
+            agent_texts=["旧结果"],
+            command_runs=[],
+            file_changes=[],
+            now=datetime(2026, 5, 11, 10, 0, 0, tzinfo=timezone.utc),
+        )
+        session_store.upsert_session_record(
+            codex_thread_id="thread-newer",
+            agent="codex",
+            workdir="/home/dontstarve/projects/coding-relay",
+            prompt="修复新问题",
+            agent_texts=["新结果"],
+            command_runs=[],
+            file_changes=[],
+            now=datetime(2026, 5, 11, 12, 0, 0, tzinfo=timezone.utc),
+        )
+
+        result = json.loads(
+            list_relay_sessions(
+                {"workdir": "/home/dontstarve/projects/coding-relay", "limit": 5},
+                task_id="sess-1",
+            )
+        )
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["count"], 2)
+        self.assertEqual(result["sessions"][0]["resume_token"], "thread-newer")
+        self.assertEqual(result["sessions"][1]["resume_token"], "thread-older")
+        self.assertIsNone(get_active_relay("sess-1"))
 
     def test_coding_relay_streams_first_turn_when_gateway_context_exists(self):
         import handoff_tool
@@ -270,6 +313,100 @@ class PluginRegistrationTests(unittest.TestCase):
             ],
         )
 
+    def test_coding_relay_streams_when_source_platform_is_enum(self):
+        import handoff_tool
+        import relay_delivery
+
+        adapter = FakeAdapter()
+        gateway = FakeGateway(adapter, platform_key=FakePlatform.FEISHU)
+        event = FakeEvent(chat_id="chat-1", message_id="msg-1", platform=FakePlatform.FEISHU)
+
+        original_runner = relay_delivery.run_codex_turn
+        original_handoff_runner = handoff_tool.run_codex_turn
+
+        def fake_runner(state, prompt, message_id=None, event_sink=None):
+            events = [{"kind": "agent_text", "payload": {"text": "枚举平台回复正常。"}}]
+            if callable(event_sink):
+                for event_record in events:
+                    event_sink(event_record)
+            return FakeRunnerResult(
+                codex_thread_id="thread-123",
+                agent_texts=["枚举平台回复正常。"],
+                events=events,
+            )
+
+        relay_delivery.run_codex_turn = fake_runner
+        handoff_tool.run_codex_turn = fake_runner
+        self.addCleanup(setattr, relay_delivery, "run_codex_turn", original_runner)
+        self.addCleanup(setattr, handoff_tool, "run_codex_turn", original_handoff_runner)
+
+        result = json.loads(
+            coding_relay(
+                {"agent": "codex", "prompt": "x", "workdir": "/home/dontstarve/projects/coding-relay"},
+                task_id="sess-1",
+                message_id="msg-1",
+                gateway=gateway,
+                event=event,
+                session_store=FakeSessionStore(FakeSessionEntry("sess-1", "key-1")),
+            )
+        )
+
+        self.assertEqual(result["status"], "handed_off")
+        self.assertEqual(
+            adapter.messages,
+            [
+                ("chat-1", "枚举平台回复正常。"),
+                ("chat-1", "**本轮完成**"),
+            ],
+        )
+
+    def test_gateway_hook_streams_when_source_platform_is_enum(self):
+        import gateway_hook
+        import relay_delivery
+
+        adapter = FakeAdapter()
+        gateway = FakeGateway(adapter, platform_key=FakePlatform.FEISHU)
+
+        original_runner = relay_delivery.run_codex_turn
+
+        def fake_runner(state, prompt, message_id=None, event_sink=None):
+            events = [{"kind": "agent_text", "payload": {"text": f"reply:{prompt}"}}]
+            if callable(event_sink):
+                for event_record in events:
+                    event_sink(event_record)
+            return FakeRunnerResult(
+                codex_thread_id="thread-123",
+                agent_texts=[f"reply:{prompt}"],
+                events=events,
+            )
+
+        relay_delivery.run_codex_turn = fake_runner
+        self.addCleanup(setattr, relay_delivery, "run_codex_turn", original_runner)
+
+        from relay_runtime import activate_relay
+
+        activate_relay("sess-1", "/home/dontstarve/projects/coding-relay", "thread-123", session_key="key-1")
+
+        event = FakeEvent(chat_id="chat-1", message_id="msg-2", platform=FakePlatform.FEISHU)
+        event.text = "continue"
+        result = pre_gateway_dispatch(
+            event=event,
+            gateway=gateway,
+            session_store=FakeSessionStore(FakeSessionEntry("sess-1", "key-1")),
+        )
+
+        self.assertEqual(result["action"], "skip")
+        deadline = time.time() + 1.0
+        while len(adapter.messages) < 2 and time.time() < deadline:
+            time.sleep(0.01)
+        self.assertEqual(
+            adapter.messages,
+            [
+                ("chat-1", "reply:continue"),
+                ("chat-1", "**本轮完成**"),
+            ],
+        )
+
     def test_coding_relay_prepends_resume_notice_without_gateway_context(self):
         import handoff_tool
 
@@ -297,7 +434,7 @@ class PluginRegistrationTests(unittest.TestCase):
                     "agent": "codex",
                     "prompt": "继续处理",
                     "workdir": "/home/dontstarve/projects/coding-relay",
-                    "codex_thread_id": "thread-123",
+                    "resume_token": "thread-123",
                 },
                 task_id="sess-1",
                 message_id="msg-1",
@@ -308,7 +445,8 @@ class PluginRegistrationTests(unittest.TestCase):
         self.assertEqual(
             result["initial_messages"][0],
             "**已恢复历史会话**\n"
-            "- thread: `thread-123`\n"
+            "- provider: `codex`\n"
+            "- resume token: `thread-123`\n"
             "- workdir: `/home/dontstarve/projects/coding-relay`\n"
             "- 上次活跃：`2026-05-11T11:30:00+00:00`\n"
             "- 摘要：目标：修复 relay 输出；最近结果：已完成首轮修复。；最近文件：relay_delivery.py；最近检查：pytest -q (exit 0)\n"
@@ -359,7 +497,7 @@ class PluginRegistrationTests(unittest.TestCase):
                     "agent": "codex",
                     "prompt": "继续处理",
                     "workdir": "/home/dontstarve/projects/coding-relay",
-                    "codex_thread_id": "thread-123",
+                    "resume_token": "thread-123",
                 },
                 task_id="sess-1",
                 message_id="msg-1",
@@ -377,7 +515,8 @@ class PluginRegistrationTests(unittest.TestCase):
                 (
                     "chat-1",
                     "**已恢复历史会话**\n"
-                    "- thread: `thread-123`\n"
+                    "- provider: `codex`\n"
+                    "- resume token: `thread-123`\n"
                     "- workdir: `/home/dontstarve/projects/coding-relay`\n"
                     "- 上次活跃：`2026-05-11T11:30:00+00:00`\n"
                     "- 摘要：目标：修复 relay 输出；最近结果：已完成首轮修复。；最近文件：relay_delivery.py；最近检查：pytest -q (exit 0)\n"
@@ -418,6 +557,31 @@ class PluginRegistrationTests(unittest.TestCase):
         store = session_store.load_session_store()
         self.assertEqual(store["sessions"][0]["codex_thread_id"], "thread-123")
         self.assertIn("最近结果：reply:continue", store["sessions"][0]["summary"])
+
+    def test_coding_relay_accepts_legacy_codex_thread_id_alias(self):
+        import handoff_tool
+
+        original_runner = handoff_tool.run_codex_turn
+        handoff_tool.run_codex_turn = lambda state, prompt, message_id=None: FakeRunnerResult(
+            codex_thread_id="thread-legacy",
+            agent_texts=["继续处理完成。"],
+        )
+        self.addCleanup(setattr, handoff_tool, "run_codex_turn", original_runner)
+
+        result = json.loads(
+            coding_relay(
+                {
+                    "agent": "codex",
+                    "prompt": "继续处理",
+                    "workdir": "/home/dontstarve/projects/coding-relay",
+                    "codex_thread_id": "thread-legacy",
+                },
+                task_id="sess-1",
+            )
+        )
+
+        self.assertEqual(result["status"], "handed_off")
+        self.assertEqual(result["resume_token"], "thread-legacy")
 
     def test_coding_relay_returns_formatted_spawn_failure(self):
         import handoff_tool

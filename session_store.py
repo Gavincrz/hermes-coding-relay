@@ -1,4 +1,4 @@
-"""Session persistence for Codex relay runtime state."""
+"""Session persistence for relay runtime state."""
 
 from __future__ import annotations
 
@@ -44,9 +44,12 @@ def upsert_session_record(
     )
     last_check = _extract_last_check(command_runs) or _extract_summary_field(existing_summary, "最近检查")
 
+    provider = _normalize_provider(agent)
     updated = {
         "codex_thread_id": codex_thread_id,
+        "resume_token": codex_thread_id,
         "agent": agent,
+        "provider": provider,
         "workdir": workdir,
         "created_at": _as_str(record.get("created_at")) if record else timestamp,
         "last_active_at": timestamp,
@@ -88,16 +91,47 @@ def load_session_store(path: Path | None = None) -> dict[str, list[dict[str, Any
     return {"sessions": normalized}
 
 
-def find_session_record(codex_thread_id: str, path: Path | None = None) -> dict[str, Any] | None:
-    """Return one persisted session record by Codex thread id if present."""
-    if not isinstance(codex_thread_id, str) or not codex_thread_id:
+def find_session_record(resume_token: str, path: Path | None = None) -> dict[str, Any] | None:
+    """Return one persisted session record by provider-native resume token if present."""
+    if not isinstance(resume_token, str) or not resume_token:
         return None
     store = load_session_store(path)
     sessions = store.get("sessions")
     if not isinstance(sessions, list):
         return None
-    record = _find_record(sessions, codex_thread_id)
-    return dict(record) if isinstance(record, dict) else None
+    record = _find_record(sessions, resume_token)
+    return _normalize_record(record) if isinstance(record, dict) else None
+
+
+def list_session_records(
+    *,
+    workdir: str,
+    provider: str | None = None,
+    limit: int = 5,
+    path: Path | None = None,
+) -> list[dict[str, Any]]:
+    """List normalized persisted session records for one workdir."""
+    if not isinstance(workdir, str) or not workdir:
+        return []
+
+    normalized_provider = _normalize_provider(provider) if isinstance(provider, str) and provider.strip() else ""
+    bounded_limit = max(1, min(limit, 20)) if isinstance(limit, int) else 5
+    store = load_session_store(path)
+    sessions = store.get("sessions")
+    if not isinstance(sessions, list):
+        return []
+
+    matched: list[dict[str, Any]] = []
+    for record in sessions:
+        normalized = _normalize_record(record)
+        if normalized.get("workdir") != workdir:
+            continue
+        if normalized_provider and normalized.get("provider") != normalized_provider:
+            continue
+        matched.append(normalized)
+
+    matched.sort(key=lambda item: _as_str(item.get("last_active_at")), reverse=True)
+    return matched[:bounded_limit]
 
 
 def _write_session_store(store: dict[str, Any], path: Path) -> None:
@@ -105,11 +139,32 @@ def _write_session_store(store: dict[str, Any], path: Path) -> None:
     path.write_text(json.dumps(store, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def _find_record(sessions: list[dict[str, Any]], codex_thread_id: str) -> dict[str, Any] | None:
+def _find_record(sessions: list[dict[str, Any]], resume_token: str) -> dict[str, Any] | None:
     for session in sessions:
-        if session.get("codex_thread_id") == codex_thread_id:
+        if _extract_resume_token(session) == resume_token:
             return session
     return None
+
+
+def _normalize_record(record: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(record)
+    normalized["provider"] = _normalize_provider(
+        _as_str(record.get("provider")) or _as_str(record.get("agent")) or "codex"
+    )
+    normalized["resume_token"] = _extract_resume_token(record)
+    return normalized
+
+
+def _extract_resume_token(record: dict[str, Any]) -> str:
+    resume_token = _as_str(record.get("resume_token"))
+    if resume_token:
+        return resume_token
+    return _as_str(record.get("codex_thread_id"))
+
+
+def _normalize_provider(value: Any) -> str:
+    provider = _as_str(value).strip().lower()
+    return provider or "codex"
 
 
 def _build_summary(*, goal: str, recent_result: str, last_files: list[str], last_check: str) -> str:

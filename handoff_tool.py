@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
+import logging
 
 try:
     from .output_formatter import safe_format_turn_output
     from .relay_config import get_command_visibility
-    from .relay_delivery import has_delivery_context, resolve_source, stream_turn_sync
+    from .relay_delivery import has_delivery_context, inspect_delivery_context, resolve_source, stream_turn_sync
     from .relay_context import extract_message_id, extract_session_id, extract_session_key
     from .relay_runtime import (
         activate_relay,
@@ -22,7 +23,7 @@ try:
 except ImportError:  # pragma: no cover - direct import compatibility
     from output_formatter import safe_format_turn_output
     from relay_config import get_command_visibility
-    from relay_delivery import has_delivery_context, resolve_source, stream_turn_sync
+    from relay_delivery import has_delivery_context, inspect_delivery_context, resolve_source, stream_turn_sync
     from relay_context import extract_message_id, extract_session_id, extract_session_key
     from relay_runtime import (
         activate_relay,
@@ -36,12 +37,15 @@ except ImportError:  # pragma: no cover - direct import compatibility
     from session_store import find_session_record
 
 
+_log = logging.getLogger("coding-relay.handoff")
+
+
 def coding_relay(args, **kwargs):
     """Validate handoff arguments, enter coding mode, and start the first Codex turn."""
     agent = args.get("agent")
     prompt = args.get("prompt")
     workdir = args.get("workdir")
-    codex_thread_id = args.get("codex_thread_id")
+    resume_token = _resolve_resume_token(args)
     sandbox_mode = args.get("sandbox_mode")
     yolo = args.get("yolo")
     session_id = extract_session_id(args) or extract_session_id(kwargs)
@@ -118,15 +122,33 @@ def coding_relay(args, **kwargs):
     state = activate_relay(
         session_id=session_id.strip(),
         workdir=resolved_workdir,
-        codex_thread_id=codex_thread_id,
+        codex_thread_id=resume_token,
         session_key=session_key,
         sandbox_mode=resolved_sandbox_mode,
         yolo=yolo_enabled,
     )
-    resume_notice = _build_resume_notice(codex_thread_id, resolved_workdir)
+    resume_notice = _build_resume_notice(resume_token, resolved_workdir)
 
     source = resolve_source(kwargs)
+    context_info = inspect_delivery_context(kwargs, source)
+    _log.info(
+        "coding_relay handoff: session_id=%s session_key=%s resume_requested=%s has_gateway=%s has_event=%s has_source=%s platform=%s adapter_present=%s workdir=%s",
+        session_id,
+        session_key,
+        bool(isinstance(resume_token, str) and resume_token.strip()),
+        context_info["has_gateway"],
+        context_info["has_event"],
+        context_info["has_source"],
+        context_info["platform"],
+        context_info["adapter_present"],
+        resolved_workdir,
+    )
     if has_delivery_context(kwargs, source):
+        _log.info(
+            "coding_relay handoff path=streamed session_id=%s resume_notice=%s",
+            session_id,
+            bool(resume_notice),
+        )
         turn_result = stream_turn_sync(
             kwargs=kwargs,
             source=source,
@@ -137,6 +159,11 @@ def coding_relay(args, **kwargs):
         )
         turn_messages: list[str] = []
     else:
+        _log.info(
+            "coding_relay handoff path=fallback session_id=%s resume_notice=%s",
+            session_id,
+            bool(resume_notice),
+        )
         turn_result = run_codex_turn(state, prompt, message_id=message_id)
         turn_messages = safe_format_turn_output(turn_result, command_visibility=get_command_visibility())
         if resume_notice:
@@ -150,6 +177,7 @@ def coding_relay(args, **kwargs):
                 "status": "error",
                 "agent": "codex",
                 "workdir": resolved_workdir,
+                "resume_token": turn_result.codex_thread_id,
                 "codex_thread_id": turn_result.codex_thread_id,
                 "messages": turn_messages,
                 "errors": turn_result.errors,
@@ -163,6 +191,7 @@ def coding_relay(args, **kwargs):
             "status": "handed_off",
             "agent": "codex",
             "workdir": resolved_workdir,
+            "resume_token": turn_result.codex_thread_id,
             "codex_thread_id": turn_result.codex_thread_id,
             "sandbox_mode": resolved_sandbox_mode,
             "yolo": yolo_enabled,
@@ -176,12 +205,23 @@ def coding_relay(args, **kwargs):
 coding_handoff = coding_relay
 
 
-def _build_resume_notice(codex_thread_id: object, workdir: str) -> str:
-    if not isinstance(codex_thread_id, str) or not codex_thread_id.strip():
+def _resolve_resume_token(args: dict) -> str | None:
+    resume_token = args.get("resume_token")
+    if isinstance(resume_token, str) and resume_token.strip():
+        return resume_token.strip()
+
+    legacy_thread_id = args.get("codex_thread_id")
+    if isinstance(legacy_thread_id, str) and legacy_thread_id.strip():
+        return legacy_thread_id.strip()
+    return None
+
+
+def _build_resume_notice(resume_token: object, workdir: str) -> str:
+    if not isinstance(resume_token, str) or not resume_token.strip():
         return ""
 
-    record = find_session_record(codex_thread_id.strip())
-    lines = ["**已恢复历史会话**", f"- thread: `{codex_thread_id.strip()}`", f"- workdir: `{workdir}`"]
+    record = find_session_record(resume_token.strip())
+    lines = ["**已恢复历史会话**", f"- provider: `codex`", f"- resume token: `{resume_token.strip()}`", f"- workdir: `{workdir}`"]
     if record is None:
         return "\n".join(lines)
 

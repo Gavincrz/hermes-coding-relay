@@ -32,6 +32,8 @@ class SessionStoreTests(unittest.TestCase):
             now=datetime(2026, 5, 9, 10, 0, 0, tzinfo=timezone.utc),
         )
 
+        self.assertEqual(record["provider"], "codex")
+        self.assertEqual(record["resume_token"], "thread-123")
         self.assertEqual(record["codex_thread_id"], "thread-123")
         self.assertEqual(record["created_at"], "2026-05-09T10:00:00+00:00")
         self.assertEqual(record["last_active_at"], "2026-05-09T10:00:00+00:00")
@@ -73,6 +75,59 @@ class SessionStoreTests(unittest.TestCase):
         self.assertIn("目标：重构配置模块并补测试", record["summary"])
         self.assertIn("最近结果：已补充 validator 覆盖。", record["summary"])
         self.assertIn("最近检查：pytest -q (exit 0)", record["summary"])
+
+    def test_find_session_record_supports_resume_token_normalization(self):
+        session_store.upsert_session_record(
+            codex_thread_id="thread-123",
+            agent="codex",
+            workdir="/home/dontstarve/projects/coding-relay",
+            prompt="继续修复",
+            agent_texts=["完成"],
+            command_runs=[],
+            file_changes=[],
+            now=datetime(2026, 5, 9, 10, 0, 0, tzinfo=timezone.utc),
+        )
+
+        record = session_store.find_session_record("thread-123")
+
+        self.assertEqual(record["resume_token"], "thread-123")
+        self.assertEqual(record["provider"], "codex")
+
+    def test_list_session_records_filters_by_workdir_and_orders_recent_first(self):
+        session_store.upsert_session_record(
+            codex_thread_id="thread-old",
+            agent="codex",
+            workdir="/home/dontstarve/projects/coding-relay",
+            prompt="旧任务",
+            agent_texts=["旧结果"],
+            command_runs=[],
+            file_changes=[],
+            now=datetime(2026, 5, 9, 10, 0, 0, tzinfo=timezone.utc),
+        )
+        session_store.upsert_session_record(
+            codex_thread_id="thread-new",
+            agent="codex",
+            workdir="/home/dontstarve/projects/coding-relay",
+            prompt="新任务",
+            agent_texts=["新结果"],
+            command_runs=[],
+            file_changes=[],
+            now=datetime(2026, 5, 9, 11, 0, 0, tzinfo=timezone.utc),
+        )
+        session_store.upsert_session_record(
+            codex_thread_id="thread-other",
+            agent="codex",
+            workdir="/home/dontstarve/projects/other-project",
+            prompt="其他任务",
+            agent_texts=["其他结果"],
+            command_runs=[],
+            file_changes=[],
+            now=datetime(2026, 5, 9, 12, 0, 0, tzinfo=timezone.utc),
+        )
+
+        records = session_store.list_session_records(workdir="/home/dontstarve/projects/coding-relay", limit=5)
+
+        self.assertEqual([record["resume_token"] for record in records], ["thread-new", "thread-old"])
 
     def test_load_session_store_tolerates_invalid_json(self):
         self.sessions_path.parent.mkdir(parents=True, exist_ok=True)

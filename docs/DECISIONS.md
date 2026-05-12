@@ -30,18 +30,20 @@
 - 降低 token 消耗
 - 降低控制权切换复杂度
 
-## D003 持久化主键使用 `codex_thread_id`
+## D003 持久化记录直接保存 provider 原生恢复标识
 
 日期：2026-05-09
 
 结论：
 
 - 不额外创造语义重复的本地会话主键
-- 持久化记录直接使用 `codex_thread_id`
+- 对外恢复参数统一抽象为 `resume_token`
+- 持久化记录直接保存 provider 原生恢复标识
+- 当前 Codex 实现下，该标识的实际值就是 `thread_id`
 
 理由：
 
-- resume 真实依赖的就是这个标识
+- resume 真实依赖的是 provider 自己的恢复标识
 - 减少映射复杂度和术语混乱
 
 ## D004 运行态数据放在 `run/`
@@ -157,16 +159,32 @@
 
 结论：
 
-- 当 `coding_relay` 被显式传入 `codex_thread_id` 做 resume 时，relay 先展示一条“已恢复历史会话”提示
-- 提示内容来源于 `run/sessions.json` 中该线程的结构化记录，不读取最后几条原始消息
+- 当 `coding_relay` 被显式传入 `resume_token` 做 resume 时，relay 先展示一条“已恢复历史会话”提示
+- 提示内容来源于 `run/sessions.json` 中该恢复标识对应的结构化记录，不读取最后几条原始消息
 - 提示优先包含 `workdir`、`last_active_at`、`summary`、`last_files`
 - 如果没有对应记录，退化为最小提示，不阻塞 resume
 
 理由：
 
-- 用户需要确认当前恢复的是哪一个历史线程，以及上次做到哪里
+- 用户需要确认当前恢复的是哪一个历史会话，以及上次做到哪里
 - 结构化摘要比“最后几条消息”更稳定，也更适合飞书阅读
 - 这条提示只在显式 resume 时出现，不会污染普通新建 session 或当前 coding mode 内的连续对话
+
+## D017 历史会话查询通过独立工具暴露
+
+日期：2026-05-12
+
+结论：
+
+- Hermes 不直接读取或搜索 `run/sessions.json`
+- 显式 resume 场景下，先通过独立工具 `list_relay_sessions` 获取当前 `workdir` 的历史候选
+- 用户确认候选后，Hermes 再调用 `coding_relay` 并传入 `resume_token`
+
+理由：
+
+- 让“列候选”和“真正进入 coding mode”解耦，减少 `coding_relay` 职责混杂
+- 避免把底层运行态文件路径暴露给 Hermes
+- 保持“显式 resume”原则，避免 Hermes 隐式猜测历史会话
 
 ## D016 命令执行消息采用三档可见性配置
 
@@ -242,7 +260,7 @@
 - `coding_relay` 不再以 `chat_id` 作为进入 coding mode 的前提
 - active relay state 以内存态 `session_id` 为主键
 - 同一 `session_key` 下若出现新的 `session_id`，旧 relay state 自动清理
-- `codex_thread_id` 继续作为可恢复的持久化标识，和 active coding mode 解耦
+- provider 原生恢复标识继续作为可恢复的持久化标识，和 active coding mode 解耦
 
 理由：
 

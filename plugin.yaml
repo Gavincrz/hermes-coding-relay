@@ -4,6 +4,7 @@ description: "Relay coding tasks from Hermes to Codex CLI."
 author: "dontstarve"
 provides_tools:
   - coding_relay
+  - list_relay_sessions
 provides_hooks:
   - pre_gateway_dispatch
 requires_env: []
