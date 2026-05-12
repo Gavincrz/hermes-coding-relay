@@ -739,3 +739,134 @@
 下一步：
 
 - 做一次真实飞书验证，确认 `none` / `filtered` / `all` 在实际消息体验上的噪音差异符合预期
+
+---
+
+## T020 飞书 relay 上下文诊断日志
+
+状态：done
+
+目标：
+
+- 为 handoff 和 `pre_gateway_dispatch` 补最小、非敏感的诊断日志
+- 在真实飞书端到端里确认到底走了直发路径还是无发送 fallback 路径
+
+完成标准：
+
+- handoff 路径记录是否拿到 `gateway`、`event`、`source`、adapter 和 resume 标记
+- hook 路径记录是否命中 active relay、是否具备可发送上下文、最终走了哪条分支
+- 日志不记录完整 prompt、用户原文、token、密钥等敏感内容
+
+实现备注：
+
+- 本任务只加诊断日志，不修改分支行为
+- 已完成：handoff 路径记录 `gateway/event/source/adapter` 是否存在，以及 streamed/fallback 分支选择
+- 已完成：`pre_gateway_dispatch` 记录 active relay 命中、可发送上下文和 streamed/fallback/busy 分支选择
+- 已完成：`stream_turn_sync` 记录开始、fallback 格式化和结束统计
+- 已完成：日志不记录 prompt、用户原文或其他敏感内容
+
+下一步：
+
+- 跑一轮真实飞书测试，对照日志确认上下文缺口
+
+---
+
+## T021 resume 来源约束到 coding-relay session store
+
+状态：done
+
+目标：
+
+- 明确 Hermes 在显式 resume 场景下只能使用 coding-relay 自己维护的 `run/sessions.json`
+- 避免 Hermes 自行搜索 `~/.codex`、sqlite、session_search 或其他非 relay 会话源
+
+完成标准：
+
+- `skill/SKILL.md` 明确写死 resume 的唯一候选来源是 coding-relay 的 session store
+- `skill/SKILL.md` 明确禁止 Hermes 自行搜索 Codex 本地目录、数据库或其他历史来源
+- `skill/SKILL.md` 示例与规则保持一致
+
+实现备注：
+
+- 已完成：补充 resume 来源约束，限定为 coding-relay 自己的 `run/sessions.json`
+- 已完成：明确禁止使用 `~/.codex`、sqlite、session_search 等路径自行猜测 thread id
+- 本轮只改 skill 和任务记录，不改代码
+
+未完成内容：
+
+- 代码层尚未提供“按 workdir 从 session store 选候选 thread”的专门工具接口；当前仍依赖 Hermes 按 skill 约束读取 relay 记录
+
+下一步：
+
+- 重新部署插件并重启 gateway，再做一轮飞书测试验证 Hermes 是否停止搜索外部 Codex 会话源
+
+---
+
+## T022 修复飞书 relay adapter 查找回归
+
+状态：done
+
+目标：
+
+- 修复 `relay_delivery` 在真实 Hermes gateway 中查找平台 adapter 失败的问题
+- 恢复 coding mode 后续消息和 `/relay-back` 的飞书回发能力
+
+完成标准：
+
+- follow-up turn 在 `source.platform` 为 Hermes `Platform` 枚举时，仍能正确命中 `gateway.adapters`
+- `/relay-back` 在 relay mode 中能通过同一发送链路正常回发退出提示
+- 补测试覆盖 Hermes 实际的枚举 key 形状，避免再次回归
+
+实现备注：
+
+- 根因：诊断阶段把 adapter lookup 从原始 `source.platform` 错改成了字符串归一化值，和 Hermes `gateway.adapters` 的枚举 key 不匹配
+- 已完成：发送链路拆分“adapter lookup key”和“日志展示 platform label”
+- 已完成：adapter 查找恢复使用原始平台对象；日志继续输出可读字符串
+- 已完成：补充 handoff 和 hook 的枚举平台测试，覆盖真实 Hermes 形状
+
+下一步：
+
+- 重启 gateway 后重新做飞书端到端验证，确认 follow-up turn 和 `/relay-back` 恢复正常
+
+---
+
+## T023 历史会话查询工具与 resume_token 收口
+
+状态：done
+
+目标：
+
+- 提供不进入 coding mode 的历史会话查询工具，避免 Hermes 自行搜索 `run/sessions.json`
+- 将对外 resume 参数从 `codex_thread_id` 收口为 provider-neutral 的 `resume_token`
+- 保持当前 Codex 实现兼容旧字段，同时把 resume 决策流程迁移到“先查候选，再由用户确认”
+
+完成标准：
+
+- 新增独立工具用于按 `workdir` 列出历史 relay 会话候选
+- `coding_relay` 对外支持 `resume_token`，并兼容旧 `codex_thread_id`
+- `skill/SKILL.md` 明确：显式 resume 先调查询工具，再根据用户确认调用 `coding_relay`
+- 补充单测覆盖历史会话查询、`resume_token` 恢复和旧字段兼容
+
+实现备注：
+
+- 第一版只做 Codex 后端；不为多 provider 提前做运行时重构
+- 不新增本地伪造统一 session id；继续使用 provider 原生恢复标识
+- 查询工具只消费 relay 自己的 session store，不暴露底层文件路径给 Hermes
+
+实现备注：
+
+- 已完成：新增 `list_relay_sessions` 工具，按 `workdir` 返回历史 relay 会话候选且不进入 coding mode
+- 已完成：`session_store.py` 输出和查询统一补充 `provider` / `resume_token` 归一化字段，并兼容旧 `codex_thread_id`
+- 已完成：`coding_relay` 对外支持 `resume_token`，同时保留 `codex_thread_id` 兼容别名
+- 已完成：更新 `skill/SKILL.md`，显式 resume 改为先调 `list_relay_sessions`，再由用户确认后调用 `coding_relay`
+- 已完成：更新 `DESIGN.md`、`docs/DECISIONS.md`、`docs/ARCHITECTURE.md`，写实新的查询工具和恢复标识命名
+- 已完成：补充单测覆盖历史会话查询、`resume_token` 恢复和旧字段兼容
+
+未完成内容：
+
+- 真实飞书端到端尚未验证“列候选 -> 用户选择 -> 第二次 handoff resume”整条交互
+- 当前内部 runtime 和事件层仍保留 `codex_thread_id` 命名；本轮只收口对外接口和 session store 口径
+
+下一步：
+
+- 做一次真实飞书验证，确认 Hermes 会先调用 `list_relay_sessions`，再根据用户确认使用 `resume_token` 进入 relay

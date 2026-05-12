@@ -7,6 +7,7 @@
 第一版目标是稳定的单链路 relay：
 
 - Hermes LLM 通过 `coding_relay` 进入 coding mode
+- 显式 resume 场景下，Hermes 先通过 `list_relay_sessions` 查询候选，再决定是否调用 `coding_relay`
 - gateway hook 在 coding mode 下绕过 Hermes LLM
 - Codex CLI 负责实际编码工作
 - 插件只负责状态、转发、事件解析和输出格式化
@@ -59,6 +60,7 @@
 
 - `handoff_tool.py`
   - `coding_relay` tool handler
+  - `list_relay_sessions` history lookup tool
   - 参数校验
   - 进入 coding mode 的入口协调
   - 用 Hermes `session_id` 建立当前 relay 绑定
@@ -121,7 +123,7 @@
 补充说明：
 
 - “当前是否处于 coding mode” 只保存在进程内存，不做永久化恢复
-- 永久保存的是 `codex_thread_id`、`workdir`、summary 等可恢复线索
+- 永久保存的是 provider 原生恢复标识、`workdir`、summary 等可恢复线索；当前 Codex 实现下该标识等于 `thread_id`
 - Hermes `/reset` 后会得到新的 `session_id`，旧 active relay state 不应继续命中新会话
 
 约束：
