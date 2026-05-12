@@ -211,6 +211,7 @@ metadata:
 - `codex exec` 不支持斜杠命令（例如 `/status`）
 - 这类命令不会像 Codex 交互模式那样被执行
 - 如果需要查看 relay 状态，应走 relay 自己的状态命令或文档化替代路径
+- 命令执行消息是否对用户可见，受插件配置 `plugins.coding-relay.command_visibility` 控制；默认值 `none` 会隐藏成功命令消息
 
 ## 确认清单
 

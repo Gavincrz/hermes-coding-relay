@@ -702,3 +702,40 @@
 下一步：
 
 - 做一次真实飞书验证，确认 resume 提示和后续 Codex 输出顺序符合预期
+
+---
+
+## T019 命令可见性配置分档
+
+状态：done
+
+目标：
+
+- 将命令执行消息做成插件级可配置行为，而不是固定全量外显
+- 默认降低噪音，同时保留联调和排障时查看完整命令过程的能力
+
+完成标准：
+
+- 新增插件配置 `plugins.coding-relay.command_visibility`
+- 支持三档：`none`、`filtered`、`all`
+- 默认值为 `none`
+- `filtered` 仅显示高价值成功命令和所有失败命令
+- `all` 显示命令开始和命令完成
+- 补充单测覆盖三档行为
+
+实现备注：
+
+- 已完成：新增 `relay_config.get_command_visibility()`，从插件配置读取命令可见性
+- 已完成：`output_formatter.py` 支持按 `none` / `filtered` / `all` 过滤 `command_started` / `command_finished`
+- 已完成：默认 `none` 仅隐藏成功命令；失败命令仍显示
+- 已完成：`filtered` 通过规则识别测试、静态检查和构建类高价值命令，不使用 AI
+- 已完成：`handoff_tool.py` 与 `relay_delivery.py` 在首轮和后续 turn 路径统一应用该配置
+- 已完成：补充单测覆盖默认静默、过滤显示和全显示
+
+未完成内容：
+
+- 暂未将高价值命令规则做成独立可配置列表；当前仍是内置规则集
+
+下一步：
+
+- 做一次真实飞书验证，确认 `none` / `filtered` / `all` 在实际消息体验上的噪音差异符合预期
