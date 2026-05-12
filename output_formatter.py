@@ -4,37 +4,65 @@ from __future__ import annotations
 
 from typing import Any
 
+try:
+    from .relay_config import get_command_visibility
+except ImportError:  # pragma: no cover - direct import compatibility
+    from relay_config import get_command_visibility
+
 
 MAX_OUTPUT_SNIPPET = 160
 MAX_FILE_LIST = 3
+VISIBLE_COMMAND_KEYWORDS = (
+    "pytest",
+    "unittest",
+    "go test",
+    "cargo test",
+    "npm test",
+    "pnpm test",
+    "ruff",
+    "mypy",
+    "eslint",
+    "tsc",
+    "npm build",
+    "pnpm build",
+    "cargo build",
+    "go build",
+)
 
 
-def safe_format_turn_output(turn_result: Any) -> list[str]:
+def safe_format_turn_output(turn_result: Any, *, command_visibility: str | None = None) -> list[str]:
     """Format one turn without letting formatter failures break the relay flow."""
     try:
-        return format_turn_output(turn_result)
+        return format_turn_output(turn_result, command_visibility=command_visibility)
     except Exception:
         return _fallback_messages(turn_result)
 
 
-def format_turn_output(turn_result: Any) -> list[str]:
+def format_turn_output(turn_result: Any, *, command_visibility: str | None = None) -> list[str]:
     """Render turn events in the order they were observed."""
+    resolved_command_visibility = _resolve_command_visibility(command_visibility)
     messages: list[str] = []
     for event in _collect_turn_events(turn_result):
-        messages.extend(format_turn_event(event))
+        messages.extend(format_turn_event(event, command_visibility=resolved_command_visibility))
 
     if messages:
         return [message for message in messages if isinstance(message, str) and message]
 
     messages.extend(_collect_agent_texts(turn_result))
-    messages.extend(_format_command_runs(getattr(turn_result, "command_runs", [])))
+    messages.extend(
+        _format_command_runs(
+            getattr(turn_result, "command_runs", []),
+            command_visibility=resolved_command_visibility,
+        )
+    )
     messages.extend(_format_file_changes(getattr(turn_result, "file_changes", [])))
     messages.extend(_format_errors(getattr(turn_result, "errors", [])))
     return [message for message in messages if isinstance(message, str) and message]
 
 
-def format_turn_event(event: Any) -> list[str]:
+def format_turn_event(event: Any, *, command_visibility: str | None = None) -> list[str]:
     """Format one normalized relay event into zero or more user-facing messages."""
+    resolved_command_visibility = _resolve_command_visibility(command_visibility)
     if isinstance(event, dict):
         kind = _compact(event.get("kind"))
         payload = event.get("payload")
@@ -51,7 +79,7 @@ def format_turn_event(event: Any) -> list[str]:
         return [text] if text else []
 
     if kind in {"command_started", "command_finished"}:
-        return _format_command_event(kind, payload)
+        return _format_command_event(kind, payload, command_visibility=resolved_command_visibility)
 
     if kind == "file_change":
         return _format_file_change_event(payload)
@@ -77,7 +105,7 @@ def _collect_agent_texts(turn_result: Any) -> list[str]:
     return [text for text in normalized if text]
 
 
-def _format_command_runs(command_runs: Any) -> list[str]:
+def _format_command_runs(command_runs: Any, *, command_visibility: str) -> list[str]:
     if not isinstance(command_runs, list):
         return []
 
@@ -92,19 +120,24 @@ def _format_command_runs(command_runs: Any) -> list[str]:
             "exit_code": command_run.get("exit_code"),
             "status": command_run.get("status"),
         }
-        messages.extend(_format_command_event(event_kind, payload))
+        messages.extend(_format_command_event(event_kind, payload, command_visibility=command_visibility))
     return messages
 
 
-def _format_command_event(event_kind: str, payload: dict[str, Any]) -> list[str]:
+def _format_command_event(event_kind: str, payload: dict[str, Any], *, command_visibility: str) -> list[str]:
     command = _compact(payload.get("command"))
     if not command:
         return []
 
     if event_kind == "command_started":
+        if command_visibility != "all":
+            return []
         return [f"**正在执行**\n`{command}`"]
 
     if event_kind != "command_finished":
+        return []
+
+    if not _should_display_command_finished(payload, command_visibility=command_visibility):
         return []
 
     summary = f"**已完成**\n`{command}`"
@@ -115,6 +148,21 @@ def _format_command_event(event_kind: str, payload: dict[str, Any]) -> list[str]
     if output:
         summary += f"\n```text\n{output}\n```"
     return [summary]
+
+
+def _should_display_command_finished(payload: dict[str, Any], *, command_visibility: str) -> bool:
+    exit_code = payload.get("exit_code")
+    if isinstance(exit_code, int) and exit_code != 0:
+        return True
+
+    if command_visibility == "all":
+        return True
+
+    if command_visibility == "none":
+        return False
+
+    command = _compact(payload.get("command")).lower()
+    return any(keyword in command for keyword in VISIBLE_COMMAND_KEYWORDS)
 
 
 def _format_file_changes(file_changes: Any) -> list[str]:
@@ -239,3 +287,9 @@ def _build_file_change_message(paths: list[str]) -> str:
     if len(paths) > MAX_FILE_LIST:
         lines.append(f"- 另有 {len(paths) - MAX_FILE_LIST} 个文件")
     return "**已修改文件**\n" + "\n".join(lines)
+
+
+def _resolve_command_visibility(command_visibility: str | None) -> str:
+    if isinstance(command_visibility, str) and command_visibility.strip():
+        return command_visibility.strip().lower()
+    return get_command_visibility()

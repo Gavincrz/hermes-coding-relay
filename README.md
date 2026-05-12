@@ -54,6 +54,7 @@ Current repository decisions are intentionally narrow:
 
 - v1 supports `codex` only
 - `workdir` must be a child directory under configured `plugins.coding-relay.workdir_root`
+- relay command visibility is configurable through `plugins.coding-relay.command_visibility`
 - runtime state lives under `run/`
 - event parsing, session state, and output formatting remain separated
 - `codex exec` slash commands such as `/status` are not treated as supported relay features
@@ -129,6 +130,16 @@ Real gateway validation is still separate:
 
 - Feishu is the only platform with real end-to-end validation so far
 - true platform verification still requires a live Hermes gateway and external message source
+
+## Output Controls
+
+Relay command execution messages support three plugin-level visibility modes:
+
+- `none`: default; hide successful command messages and all `command_started` messages, but still show failed commands
+- `filtered`: show failed commands plus high-value successful checks such as tests, linters, and builds
+- `all`: show command start and finish messages for every command
+
+Configure this via `plugins.coding-relay.command_visibility`.
 
 ## Roadmap
 

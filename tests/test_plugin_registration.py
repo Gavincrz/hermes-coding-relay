@@ -8,7 +8,7 @@ import yaml
 
 import __init__ as plugin
 import session_store
-from relay_config import build_tool_description, build_workdir_description, get_workdir_root
+from relay_config import build_tool_description, build_workdir_description, get_command_visibility, get_workdir_root
 from gateway_hook import pre_gateway_dispatch
 from handoff_tool import coding_relay
 from relay_runtime import ActiveRelayState, clear_active_relays, get_active_relay
@@ -198,7 +198,7 @@ class PluginRegistrationTests(unittest.TestCase):
         self.assertFalse(result["yolo"])
         self.assertEqual(
             result["initial_messages"],
-            ["ready", "**正在执行**\n`pytest -q`", "**已完成**\n`pytest -q` (exit 0)", "**已修改文件**\n- `relay_runtime.py`"],
+            ["ready", "**已修改文件**\n- `relay_runtime.py`"],
         )
         self.assertEqual(
             get_active_relay("sess-1"),
@@ -266,8 +266,6 @@ class PluginRegistrationTests(unittest.TestCase):
             adapter.messages,
             [
                 ("chat-1", "# 已完成\n\n最小项目已创建。"),
-                ("chat-1", "**正在执行**\n`pytest -q`"),
-                ("chat-1", "**已完成**\n`pytest -q` (exit 0)\n```text\n1 passed\n```"),
                 ("chat-1", "**本轮完成**"),
             ],
         )
@@ -528,6 +526,12 @@ class PluginRegistrationTests(unittest.TestCase):
         config = {"plugins": {"coding-relay": {"workdir_root": "/tmp/custom-root"}}}
         self.assertIn("/tmp/custom-root", build_workdir_description(config))
         self.assertIn("/tmp/custom-root", build_tool_description(config))
+
+    def test_command_visibility_defaults_and_reads_plugin_config(self):
+        self.assertEqual(get_command_visibility({}), "none")
+        self.assertEqual(get_command_visibility({"plugins": {"coding-relay": {"command_visibility": "filtered"}}}), "filtered")
+        self.assertEqual(get_command_visibility({"plugins": {"coding-relay": {"command_visibility": "all"}}}), "all")
+        self.assertEqual(get_command_visibility({"plugins": {"coding-relay": {"command_visibility": "loud"}}}), "none")
 
 
 if __name__ == "__main__":

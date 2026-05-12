@@ -33,8 +33,6 @@ class OutputFormatterTests(unittest.TestCase):
             format_turn_output(turn_result),
             [
                 "已修复解析器。",
-                "**正在执行**\n`pytest -q`",
-                "**已完成**\n`pytest -q` (exit 0)\n```text\n2 passed\n```",
                 "**已修改文件**\n- `relay_runtime.py`\n- `tests/test_runtime.py`",
             ],
         )
@@ -65,9 +63,50 @@ class OutputFormatterTests(unittest.TestCase):
             format_turn_output(turn_result),
             [
                 "已修复解析器。",
+                "**已修改文件**\n- `relay_runtime.py`\n- `tests/test_runtime.py`",
+            ],
+        )
+
+    def test_format_turn_output_filtered_shows_high_value_finished_commands_only(self):
+        turn_result = FakeTurnResult(
+            events=[
+                {"kind": "agent_text", "payload": {"text": "已修复解析器。"}},
+                {"kind": "command_started", "payload": {"command": "pytest -q"}},
+                {
+                    "kind": "command_finished",
+                    "payload": {"command": "pytest -q", "exit_code": 0, "output": "2 passed\n"},
+                },
+                {"kind": "command_started", "payload": {"command": "ls"}},
+                {"kind": "command_finished", "payload": {"command": "ls", "exit_code": 0, "output": "a.py\n"}},
+            ],
+        )
+
+        self.assertEqual(
+            format_turn_output(turn_result, command_visibility="filtered"),
+            [
+                "已修复解析器。",
+                "**已完成**\n`pytest -q` (exit 0)\n```text\n2 passed\n```",
+            ],
+        )
+
+    def test_format_turn_output_all_shows_started_and_finished_commands(self):
+        turn_result = FakeTurnResult(
+            events=[
+                {"kind": "agent_text", "payload": {"text": "已修复解析器。"}},
+                {"kind": "command_started", "payload": {"command": "pytest -q"}},
+                {
+                    "kind": "command_finished",
+                    "payload": {"command": "pytest -q", "exit_code": 0, "output": "2 passed\n"},
+                },
+            ],
+        )
+
+        self.assertEqual(
+            format_turn_output(turn_result, command_visibility="all"),
+            [
+                "已修复解析器。",
                 "**正在执行**\n`pytest -q`",
                 "**已完成**\n`pytest -q` (exit 0)\n```text\n2 passed\n```",
-                "**已修改文件**\n- `relay_runtime.py`\n- `tests/test_runtime.py`",
             ],
         )
 
@@ -102,6 +141,22 @@ class OutputFormatterTests(unittest.TestCase):
                 pass
 
         self.assertEqual(safe_format_turn_output(BadTurnResult()), ["relay 输出格式化失败，已跳过格式化步骤。"])
+
+    def test_format_turn_output_none_still_shows_failed_commands(self):
+        turn_result = FakeTurnResult(
+            events=[
+                {"kind": "command_started", "payload": {"command": "pytest -q"}},
+                {
+                    "kind": "command_finished",
+                    "payload": {"command": "pytest -q", "exit_code": 1, "output": "1 failed\n"},
+                },
+            ]
+        )
+
+        self.assertEqual(
+            format_turn_output(turn_result, command_visibility="none"),
+            ["**已完成**\n`pytest -q` (exit 1)\n```text\n1 failed\n```"],
+        )
 
 
 if __name__ == "__main__":

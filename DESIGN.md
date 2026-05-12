@@ -286,6 +286,12 @@ codex --dangerously-bypass-approvals-and-sandbox exec --json -C <workdir> "<prom
 
 第一版允许按事件顺序流式发送；如果 gateway / 飞书消息编辑能力不稳定，允许退化为“连续发新消息”，但仍要求消息顺序与事件顺序一致。
 
+命令执行消息通过插件配置 `plugins.coding-relay.command_visibility` 控制：
+
+- `none`：默认值；不显示成功命令，不显示 `command_started`，失败命令仍显示
+- `filtered`：不显示 `command_started`；成功命令仅显示测试、静态检查和构建类高价值命令；失败命令仍显示
+- `all`：显示 `command_started` 和所有 `command_finished`
+
 ### 9.1 首轮 handoff 输出
 
 `coding_relay` 的首轮执行与后续 coding mode turn 采用同一条输出路径：

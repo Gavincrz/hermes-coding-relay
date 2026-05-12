@@ -6,6 +6,7 @@ import json
 
 try:
     from .output_formatter import safe_format_turn_output
+    from .relay_config import get_command_visibility
     from .relay_delivery import has_delivery_context, resolve_source, stream_turn_sync
     from .relay_context import extract_message_id, extract_session_id, extract_session_key
     from .relay_runtime import (
@@ -20,6 +21,7 @@ try:
     from .session_store import find_session_record
 except ImportError:  # pragma: no cover - direct import compatibility
     from output_formatter import safe_format_turn_output
+    from relay_config import get_command_visibility
     from relay_delivery import has_delivery_context, resolve_source, stream_turn_sync
     from relay_context import extract_message_id, extract_session_id, extract_session_key
     from relay_runtime import (
@@ -136,7 +138,7 @@ def coding_relay(args, **kwargs):
         turn_messages: list[str] = []
     else:
         turn_result = run_codex_turn(state, prompt, message_id=message_id)
-        turn_messages = safe_format_turn_output(turn_result)
+        turn_messages = safe_format_turn_output(turn_result, command_visibility=get_command_visibility())
         if resume_notice:
             turn_messages = [resume_notice, *turn_messages]
         persist_session_turn(state, prompt, turn_result)

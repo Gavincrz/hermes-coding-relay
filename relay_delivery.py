@@ -9,9 +9,11 @@ from typing import Any
 
 try:
     from .output_formatter import format_turn_event, safe_format_turn_output
+    from .relay_config import get_command_visibility
     from .relay_runtime import get_active_relay, persist_session_turn, run_codex_turn
 except ImportError:  # pragma: no cover - direct import compatibility
     from output_formatter import format_turn_event, safe_format_turn_output
+    from relay_config import get_command_visibility
     from relay_runtime import get_active_relay, persist_session_turn, run_codex_turn
 
 
@@ -91,11 +93,12 @@ def stream_turn_sync(
 ) -> Any:
     """Run one turn and deliver normalized output in order."""
     streamed = False
+    resolved_command_visibility = get_command_visibility()
 
     def emit(event_record: dict[str, Any]) -> None:
         nonlocal streamed
         streamed = True
-        for message in format_turn_event(event_record):
+        for message in format_turn_event(event_record, command_visibility=resolved_command_visibility):
             send_chat_message_sync(kwargs, source, message)
 
     try:
@@ -105,7 +108,7 @@ def stream_turn_sync(
         turn_result = run_codex_turn(state, prompt, message_id=message_id, event_sink=emit)
         persist_session_turn(state, prompt, turn_result)
         if not streamed:
-            for message in safe_format_turn_output(turn_result):
+            for message in safe_format_turn_output(turn_result, command_visibility=resolved_command_visibility):
                 send_chat_message_sync(kwargs, source, message)
         if _is_active_state(kwargs, state):
             send_chat_message_sync(kwargs, source, TURN_COMPLETE_MESSAGE)
