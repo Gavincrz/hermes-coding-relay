@@ -424,7 +424,7 @@
 
 ## T011A OpenCode 调研与接入边界
 
-状态：todo
+状态：doing
 
 目标：
 
@@ -443,9 +443,51 @@
 - 先调研，不写实现代码
 - 如果 `opencode` 的行为和 Codex 差异很大，优先记录分歧点，再决定适配拆分
 
+已完成调研：
+
+- 已确认本机 `opencode` CLI 可用，版本为 `1.14.47`
+- 已确认非交互主入口为 `opencode run [message..] --format json`
+- 已确认顶层命令面存在 `run`、`session`、`export`、`serve`、`attach`、`db`
+- 已确认 `run --help` 暴露 `--dir`、`--continue`、`--session`、`--fork`、`--agent`、`--model`、`--dangerously-skip-permissions`
+- 已通过真实 probe 确认 `run --format json` 输出 JSONL 事件流，至少包含 `step_start`、`text`、`tool_use`、`step_finish`
+- 已通过真实 probe 确认一次 turn 可能拆成多段 step：例如 `step_start -> tool_use -> step_finish(reason=tool-calls)`，再进入下一段 `step_start -> text -> step_finish(reason=stop)`
+- 已确认 `tool_use.part.state` 直接带 `status`、`input`、`output`、`metadata`、`time`，适合后续提炼命令/文件摘要
+- 已确认 `step_start` 顶层带 `sessionID`，适合作为 opencode 会话初始化事件的原生来源
+- 已确认 `opencode export <sessionID>` 可导出完整结构化 session，包含 `info`、`messages`、`parts`
+- 已确认 `opencode session list` 可列出历史 session 候选
+- 已确认本地 SQLite DB 位于 `~/.local/share/opencode/opencode.db`，且存在 `session`、`message`、`part`、`event`、`workspace`、`permission` 等表
+- 已确认 `session` 表至少包含 `id`、`directory`、`title`、`time_created`、`time_updated`、`agent`、`model`
+- 已确认 `opencode run --continue` 在真实 probe 中可以恢复最近 session
+- 已确认 `opencode run --session <真实存在的 sessionID>` 在当前 probe 下会返回 `Session not found`
+- 已确认 `opencode run --session <...> --fork` 在当前 probe 下同样返回 `Session not found`
+- 已确认同一会话若并发执行多个 `--continue`，输出会交织到同一个 `sessionID`，因此后续接入仍必须保持“单 session 单活跃 turn”约束
+- 已调研 `~/projects/clowder-ai` 的 `opencode` 接入实现，确认其采用“独立 service + 独立 event transform + invocation-scoped opencode.json”的分层，值得借鉴
+- 已确认 `clowder-ai` 当前对 `opencode` resume 仅做 `--session` 参数透传与单测占位，未收敛真实 `--session` / `--continue` 恢复语义
+
+当前结论：
+
+- `opencode` 适合沿用现有 relay 的“spawn 子进程 + 读事件流 + 内部事件适配”大方向
+- `opencode` 不能复用当前 Codex transport / adapter，需要独立 spawner 和独立事件适配层
+- `step_start` 在多 step run 中不能每次都映射成新的外部 session 初始化；后续适配层需要只认第一次
+- `tool_use` 信息量明显高于当前 Codex `command_execution` 事件，后续需要单独决定哪些字段要进入 relay 用户可见摘要
+- `opencode` 的权限/执行模式语义与 Codex 不同，当前只看到 `--dangerously-skip-permissions`，不能直接套用 `workspace-write` / `read-only` / `yolo`
+- relay 持久化仍应以自己的 `run/sessions.json` 为准，不应直接把 `opencode.db` 当作插件真相源
+- 若后续需要支持自定义 provider / endpoint，可参考 `clowder-ai` 的 invocation-scoped `opencode.json` + `OPENCODE_CONFIG` 做法；但不要为此提前把本项目扩成通用 agent 平台
+
+待补调研：
+
+- `--session` 为何对真实存在的 `sessionID` 返回 `Session not found`；需要确认它是否受目录、server 模式、内部索引或其他上下文约束
+- `--continue` 的精确定义是什么：是“当前目录最近一次 session”、全局最近一次，还是带其他隐式筛选
+- `--fork` 的真实前置条件和返回语义仍未确认
+- `serve` / `attach` 是否提供比 CLI `run` 更稳定的显式恢复能力，需评估是否值得作为 relay 的 resume 入口
+- 非正常失败路径仍需补探测：如 provider 认证失败、权限拒绝、工具失败、坏行、非零退出时的真实 JSON / stderr 形状
+- 仍需确认 `opencode` 是否存在 todo / task 类原生事件，避免后续只做最小文本/工具映射
+- 仍需确认 `tool_use` 中哪些工具名稳定可用，哪些字段可以可靠映射为命令执行、文件修改或其他 relay 内部事件
+- 仍需确认 `opencode` 是否存在稳定的会话恢复标识，还是只能退化为“按目录继续最近 session”
+
 下一步：
 
-- 进入 T011B，实现 `opencode` 的 transport 和事件适配
+- 继续完成 T011A，优先收敛 `--session` / `--continue` / `--fork` 的真实恢复语义；在此之前不要进入 T011B
 
 ---
 
